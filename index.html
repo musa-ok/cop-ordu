@@ -57,6 +57,12 @@ h1{font:400 clamp(20px,5.2vw,28px)/1.05 var(--display);margin:3px 0 0;white-spac
 #stage.battle #field{cursor:grab}
 .toast{position:absolute;top:64px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;font:600 15px/1.25 var(--ui);padding:8px 14px;border-radius:6px;max-width:calc(100% - 24px);width:max-content;text-align:center;pointer-events:none;z-index:5}
 .hint{position:absolute;top:46%;left:50%;transform:translate(-50%,-50%);background:rgba(255,255,255,.93);border:1.5px dashed var(--blue);color:var(--ink);font:600 15px/1.3 var(--ui);padding:8px 14px;border-radius:8px;width:max-content;max-width:calc(100% - 32px);text-align:center;pointer-events:none}
+.loading{position:absolute;inset:0;display:grid;place-items:center;background:rgba(203,217,228,.72);z-index:8}
+.lcard{display:grid;gap:8px;justify-items:center;padding:18px 22px;border-radius:10px;background:var(--paper);box-shadow:0 10px 30px -12px rgba(27,34,48,.4);font:600 15px/1.2 var(--ui);color:var(--ink);width:min(280px,80%)}
+.lcard b{font:400 22px/1 var(--display)}
+.lcard small{color:var(--ink-soft);font-weight:500}
+.lbar{width:100%;height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.lbar i{display:block;height:100%;width:0;background:var(--blue);transition:width .2s}
 .glfail{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;font:600 17px/1.35 var(--ui);color:var(--ink)}
 
 /* Unit strip (top) */
@@ -179,6 +185,7 @@ button:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
       <div class="cmdhp" id="cmdHp" hidden><span>Komutanın</span><div class="hpbar"><i id="cmdHpFill"></i></div></div>
       <div class="toast" id="toast" hidden></div>
       <div class="hint" id="hint" hidden></div>
+      <div class="loading" id="loading" hidden><div class="lcard"><b>Ordu hazırlanıyor…</b><div class="lbar"><i id="lfill"></i></div><small>Şövalyeler, atlar ve tanklar yükleniyor</small></div></div>
       <div class="pad" id="pad" hidden>
         <div class="joy" id="joy" aria-label="Hareket"><div class="knob" id="knob"></div></div>
         <div class="cbtns">
@@ -221,6 +228,9 @@ button:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script src="bake.js"></script>
+<script src="models.js"></script>
 <script>
 "use strict";
 /* ---------- Field geometry (simulation units; 1 unit = 1 world unit) ---------- */
@@ -1137,7 +1147,8 @@ let hover=-1;
 function renderScene(){
   for(const k in POOLS) POOLS[k].begin();
   if(S.winner>=0) for(const u of S.teams[S.winner]) u.jump=Math.abs(Math.sin(S.time*7+u.phase))*3;
-  for(const u of S.units) drawUnit3D(u, POOL_SINK);
+  if(MODEL.ready) renderModelUnits();
+  else for(const u of S.units) drawUnit3D(u, POOL_SINK);
 
   for(const p of S.proj){
     const k=Math.min(1,p.t/p.dur);
@@ -1189,7 +1200,7 @@ function renderScene(){
     b.g.position.set(c.x-W/2, 30+(c.jump||0), c.y-H/2);
     b.g.quaternion.copy(camera.quaternion);
     b.fill.scale.x=21.2*Math.max(.001,c.hp/c.maxhp);
-    b.g.scale.setScalar(ctl ? .8 : 1.4);
+    b.g.scale.setScalar(ctl ? .8 : 1.1);
   });
 
   for(const b of banners){
@@ -1611,6 +1622,13 @@ function boot(data){
   raycaster=new THREE.Raycaster(); ndc=new THREE.Vector2(); groundPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0); hitPt=new THREE.Vector3();
   buildWorld(); buildOverlays(); initPools();
   buildCards(makeIcons());
+  if(typeof BAKE!=='undefined' && THREE.GLTFLoader){
+    $('loading').hidden=false;
+    loadModels(p => { $('lfill').style.width=(p*100).toFixed(0)+'%'; })
+      .then(() => { buildCards(makeModelIcons()); refresh(); })
+      .catch(err => { MODEL.failed=true; console.warn('model load failed', err); toast('Modeller yüklenemedi, basit askerler kullanılıyor.'); })
+      .finally(() => { $('loading').hidden=true; });
+  }
   resize(); new ResizeObserver(resize).observe(stage);
   let lvl = (data && data.lvl) || progress.current || 1;
   lvl = clamp(lvl, 1, progress.unlocked);
