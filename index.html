@@ -1,0 +1,1009 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Çöp Ordu</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Stencil+One&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: one-screen war table — HUD strip on top, a white paper battlefield in the middle, the unit dock below (beside it on wide screens) */
+:root{
+  --desk:#e7ebf0;      /* table under the paper */
+  --paper:#ffffff;     /* the battlefield */
+  --ink:#1b2230;       /* pencil ink, text */
+  --ink-soft:#5b6578;
+  --line:#cfd6e0;
+  --blue:#2456d3;      /* your army */
+  --red:#d2392c;       /* enemy army */
+  --gold:#c4870f;
+  --gold-ink:#8a5d06;
+  --display:"Saira Stencil One","Arial Black",Impact,sans-serif;
+  --ui:"Barlow Condensed","Arial Narrow","Helvetica Neue",system-ui,sans-serif;
+  color-scheme:light;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{background:var(--desk);color:var(--ink);font-family:var(--ui);overflow:hidden;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{position:fixed;inset:0;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.shell{height:100%;max-width:1180px;margin:0 auto;display:grid;grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"hud" "stage" "dock";gap:10px;padding-block:10px}
+
+/* HUD */
+.hud{grid-area:hud;display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:8px 12px}
+.lvl{min-width:0}
+.lvl-n{font:600 12px/1 var(--ui);letter-spacing:.16em;color:var(--ink-soft);text-transform:uppercase}
+h1{font:400 clamp(20px,5.2vw,28px)/1.05 var(--display);margin:3px 0 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-wrap:balance}
+.gold{display:flex;align-items:center;gap:6px;font:700 22px/1 var(--ui);font-variant-numeric:tabular-nums;padding:6px 11px 6px 9px;border-radius:999px;background:var(--paper);border:1.5px solid var(--line)}
+.gold.shake{animation:shake .35s}
+@keyframes shake{25%{transform:translateX(-4px)}50%{transform:translateX(4px)}75%{transform:translateX(-2px)}}
+.coin{width:14px;height:14px;border-radius:50%;display:inline-block;flex:none;background:radial-gradient(circle at 35% 35%,#ffe28f,var(--gold) 70%);box-shadow:inset 0 0 0 1.5px var(--gold-ink)}
+.tools{display:flex;gap:6px}
+.icon-btn{width:38px;height:38px;display:grid;place-items:center;background:var(--paper);border:1.5px solid var(--line);border-radius:8px;color:var(--ink);cursor:pointer;padding:0}
+.icon-btn svg{width:20px;height:20px}
+.meter{grid-column:1/-1;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;font:600 14px/1 var(--ui);font-variant-numeric:tabular-nums}
+#mYou{color:var(--blue)} #mEnemy{color:var(--red);text-align:right}
+.bar{height:8px;border-radius:4px;display:flex;overflow:hidden;background:var(--line)}
+.bar i{display:block;height:100%;transition:width .3s}
+#barYou{background:var(--blue)} #barEnemy{background:var(--red)}
+
+/* Stage */
+#stage{grid-area:stage;position:relative;min-height:0;min-width:0;display:grid;place-items:center}
+#field{display:block;background:var(--paper);border-radius:3px;box-shadow:0 1px 0 rgba(27,34,48,.06),0 14px 34px -14px rgba(27,34,48,.4);touch-action:none;cursor:crosshair}
+.toast{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;font:600 15px/1.25 var(--ui);padding:8px 14px;border-radius:6px;max-width:calc(100% - 24px);width:max-content;text-align:center;pointer-events:none;z-index:5}
+.hint{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(255,255,255,.94);border:1.5px dashed var(--blue);color:var(--ink);font:600 15px/1.3 var(--ui);padding:8px 14px;border-radius:8px;width:max-content;max-width:calc(100% - 32px);text-align:center;pointer-events:none}
+
+/* Dock */
+.dock{grid-area:dock;display:flex;flex-direction:column;gap:8px;min-width:0}
+.cards{display:flex;gap:8px;overflow-x:auto;padding:8px 2px 4px;scrollbar-width:thin}
+.card{flex:0 0 auto;width:88px;display:grid;justify-items:center;gap:3px;padding:6px 4px 8px;background:var(--paper);border:1.5px solid var(--line);border-radius:8px;color:var(--ink);font-family:var(--ui);cursor:pointer;position:relative}
+.card canvas{width:72px;height:52px;display:block}
+.card .nm{font:700 15px/1 var(--ui);text-transform:uppercase;letter-spacing:.07em}
+.card .meta{display:flex;gap:7px;align-items:center;font:600 14px/1 var(--ui);font-variant-numeric:tabular-nums}
+.card .cost{color:var(--gold-ink);display:flex;align-items:center;gap:3px}
+.card .cost .coin{width:10px;height:10px}
+.card .sq{color:var(--ink-soft)}
+.card[aria-selected="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--ink);background:#f4f7fc}
+.card.poor .cost{color:var(--red)}
+.card:disabled{cursor:not-allowed}
+.card.locked canvas,.card.locked .nm,.card.locked .meta{opacity:.35}
+.card .lock{position:absolute;inset:auto 0 26px;font:700 11px/1 var(--ui);letter-spacing:.06em;text-transform:uppercase;color:var(--ink)}
+.card .new{position:absolute;top:-7px;right:-4px;background:var(--red);color:#fff;font:700 10px/1 var(--ui);padding:3px 5px;border-radius:3px;letter-spacing:.1em}
+.dock.busy .cards{opacity:.5;pointer-events:none}
+.info{margin:0;font:500 15px/1.3 var(--ui);color:var(--ink-soft);min-height:2.6em}
+.info b{color:var(--ink);font-weight:700}
+.actions{display:flex;gap:8px}
+.actions .fight{flex:1}
+button{font-family:var(--ui)}
+.ghost{background:var(--paper);border:1.5px solid var(--line);color:var(--ink);border-radius:8px;padding:10px 14px;font:700 15px/1 var(--ui);letter-spacing:.06em;text-transform:uppercase;cursor:pointer}
+.fight{background:var(--ink);color:#fff;border:0;border-radius:8px;padding:12px 18px;font:400 23px/1 var(--display);letter-spacing:.06em;cursor:pointer;box-shadow:0 3px 0 #000}
+.fight:active{transform:translateY(2px);box-shadow:0 1px 0 #000}
+.fight.retreat{background:var(--paper);color:var(--red);box-shadow:inset 0 0 0 1.5px var(--red)}
+button:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
+
+/* Overlays */
+.overlay{position:fixed;inset:0;background:rgba(27,34,48,.45);display:grid;place-items:center;z-index:20;padding-block:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.sheet{background:var(--paper);border-radius:12px;padding:24px 22px;width:min(380px,100%);display:grid;gap:14px;justify-items:center;text-align:center;box-shadow:0 24px 60px -20px rgba(0,0,0,.5)}
+.sheet.wide{width:min(580px,100%);justify-items:stretch}
+.sheet h2{font:400 28px/1 var(--display);margin:0;text-align:center}
+.sheet p{margin:0;font:500 17px/1.35 var(--ui);color:var(--ink-soft);max-width:32ch}
+.stamp{font:400 48px/1 var(--display);color:var(--blue);border:4px solid currentColor;padding:8px 18px 4px;border-radius:6px;transform:rotate(-6deg);animation:stamp .45s cubic-bezier(.2,1.5,.4,1) both;margin-block:6px}
+.stamp.lose{color:var(--red)}
+@keyframes stamp{from{transform:rotate(-16deg) scale(2.2);opacity:0}to{transform:rotate(-6deg) scale(1);opacity:1}}
+.stars{display:flex;gap:6px;font-size:36px;line-height:1;color:var(--line)}
+.stars .on{color:var(--gold)}
+.row{display:flex;gap:8px;width:100%}
+.row>*{flex:1}
+.row .fight{font-size:19px;white-space:nowrap}
+.lvgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:8px;max-height:min(60vh,520px);overflow:auto;padding:2px}
+.lvbtn{display:grid;gap:4px;padding:10px 6px;background:var(--paper);border:1.5px solid var(--line);border-radius:8px;color:var(--ink);cursor:pointer;min-width:0}
+.lvbtn b{font:400 24px/1 var(--display)}
+.lvbtn small{font:600 13px/1.1 var(--ui);color:var(--ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lvbtn .st{color:var(--gold);font-size:14px;letter-spacing:2px;min-height:1em}
+.lvbtn.cur{border-color:var(--ink);box-shadow:inset 0 0 0 1.5px var(--ink)}
+.lvbtn:disabled{opacity:.4;cursor:not-allowed}
+
+@media (min-width:900px){
+  .shell{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"hud hud" "stage dock";gap:14px 20px;padding-block:16px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;overflow:visible}
+  .card{width:auto}
+  .card:last-child{grid-column:1/-1}
+  .actions{margin-top:auto}
+}
+@media (prefers-reduced-motion:reduce){
+  .stamp,.gold.shake{animation:none}
+  .bar i{transition:none}
+}
+</style>
+
+<div id="app">
+  <div class="shell">
+    <header class="hud">
+      <div class="lvl">
+        <div class="lvl-n" id="lvlN">Bölüm 1</div>
+        <h1 id="lvlName">İlk Kan</h1>
+      </div>
+      <div class="gold" id="goldBox" title="Kalan altın"><i class="coin"></i><b id="gold">0</b></div>
+      <div class="tools">
+        <button class="icon-btn" id="btnLevels" aria-label="Bölümler">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="2.5" width="6" height="6" rx="1"/><rect x="11.5" y="2.5" width="6" height="6" rx="1"/><rect x="2.5" y="11.5" width="6" height="6" rx="1"/><rect x="11.5" y="11.5" width="6" height="6" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" id="btnMute" aria-label="Sesi kapat" aria-pressed="false">
+          <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M3 8h3l4-3.5v11L6 12H3z"/><path id="waves" d="M13 7.5a3.5 3.5 0 0 1 0 5M15.5 5a7 7 0 0 1 0 10"/><path id="xmark" d="M13.5 7.5l4 5M17.5 7.5l-4 5" hidden/></svg>
+        </button>
+      </div>
+      <div class="meter">
+        <span id="mYou">Sen 0</span>
+        <div class="bar" aria-hidden="true"><i id="barYou"></i><i id="barEnemy"></i></div>
+        <span id="mEnemy">Düşman 0</span>
+      </div>
+    </header>
+
+    <main id="stage">
+      <canvas id="field" aria-label="Savaş alanı. Alt bölgedeki karelere birlik yerleştir."></canvas>
+      <div class="toast" id="toast" hidden></div>
+      <div class="hint" id="hint" hidden></div>
+    </main>
+
+    <section class="dock" id="dock">
+      <div class="cards" id="cards" role="listbox" aria-label="Birlikler"></div>
+      <p class="info" id="info"></p>
+      <div class="actions">
+        <button class="ghost" id="btnClear">Temizle</button>
+        <button class="ghost" id="btnSpeed" hidden>Hız ×1</button>
+        <button class="fight" id="btnFight">SAVAŞ!</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="overlay" id="result" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="stamp">
+      <div class="stamp" id="stamp">ZAFER</div>
+      <div class="stars" id="stars" aria-label="Yıldızlar"><span>★</span><span>★</span><span>★</span></div>
+      <p id="resText"></p>
+      <div class="row">
+        <button class="ghost" id="btnRetry">Tekrar Oyna</button>
+        <button class="fight" id="btnNext">Sonraki</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="levels" hidden>
+    <div class="sheet wide" role="dialog" aria-modal="true" aria-labelledby="lvTitle">
+      <h2 id="lvTitle">Harekât Haritası</h2>
+      <div class="lvgrid" id="lvgrid"></div>
+      <button class="ghost" id="btnCloseLv">Kapat</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ---------- Field geometry ---------- */
+const CELL = 40, COLS = 12, EROWS = 7, GAP = 4, PROWS = 7;
+const ROWS = EROWS + GAP + PROWS, PROW0 = EROWS + GAP;
+const W = COLS * CELL, H = ROWS * CELL;
+const TAU = Math.PI * 2;
+const TEAM_COL = ['#2456d3', '#d2392c'];
+const INK = '#1b2230', HORSE = '#3e4658';
+
+/* ---------- Units ---------- */
+const UNITS = {
+  soldier: { name:'Asker', cost:50,  squad:9, hp:40,   dmg:7,  cd:.9,  range:5,   speed:26, r:3.6, unlock:1,
+             blurb:'Ucuz ve kalabalık piyade. Hattı tutar, sayıyla ezer.', rng:'Yakın' },
+  archer:  { name:'Okçu',  cost:80,  squad:6, hp:24,   dmg:9,  cd:1.2, range:135, speed:24, r:3.6, unlock:1,
+             blurb:'Uzaktan ok yağdırır. Yakın dövüşte çabuk düşer.', rng:'Uzak' },
+  cavalry: { name:'Atlı',  cost:120, squad:3, hp:180,  dmg:18, cd:1,   range:6,   speed:62, r:7,   unlock:3, charge:3,
+             blurb:'Çok hızlı. İlk darbesi 3 kat vurur, önce okçu ve tanklara dalar.', rng:'Yakın' },
+  giant:   { name:'Dev',   cost:220, squad:1, hp:1400, dmg:60, cd:1.5, range:8,   speed:16, r:11,  unlock:5, splash:22,
+             blurb:'Devasa can. Sopası çevresindeki herkesi birden ezer.', rng:'Yakın' },
+  tank:    { name:'Tank',  cost:320, squad:1, hp:1300, dmg:75, cd:2.6, range:175, speed:13, r:14,  unlock:7, splash:30,
+             blurb:'Uzun menzilli top. Kalabalıkları alan hasarıyla dağıtır ama yavaştır.', rng:'Çok uzak' },
+};
+const ORDER = ['soldier','archer','cavalry','giant','tank'];
+const CODE = { s:'soldier', a:'archer', c:'cavalry', g:'giant', t:'tank' };
+const ANIM = { soldier:.25, archer:.3, cavalry:.3, giant:.4, tank:.35 };
+const LAYOUT = {
+  soldier: [[-11,-9],[0,-9],[11,-9],[-11,2],[0,2],[11,2],[-11,13],[0,13],[11,13]],
+  archer:  [[-11,-4],[0,-4],[11,-4],[-11,9],[0,9],[11,9]],
+  cavalry: [[-12,4],[0,10],[12,4]],
+  giant:   [[0,12]],
+  tank:    [[0,12]],
+};
+
+/* ---------- Levels (row 0 = enemy rear, row 6 = enemy front) ---------- */
+const LEVELS = [
+  { name:'İlk Kan', map:[
+    '............','............','............','............','............','....ssss....','............'] },
+  { name:'Ok Yağmuru', map:[
+    '............','............','............','............','....aaaa....','...ssssss...','............'] },
+  { name:'Atlı Kanatlar', map:[
+    '............','............','............','....aaaa....','cc..ssss..cc','....ssss....','............'] },
+  { name:'Kalkan Duvarı', map:[
+    '............','............','...aaaaaa...','............','.ssssssssss.','.ssssssssss.','............'] },
+  { name:'Dev Uyanıyor', map:[
+    '............','....aaaa....','............','..ssssssss..','..ssssssss..','...g....g...','............'] },
+  { name:'Hilal', map:[
+    '............','...aaaaaa...','..ssssssss..','.cs......sc.','.c........c.','cc........cc','............'] },
+  { name:'Zırhlı Tümen', map:[
+    '............','...t....t...','..aaaaaaaa..','............','.ssssssssss.','.ssssssssss.','............'] },
+  { name:'Ok Ucu', map:[
+    '.aaa....aaa.','....t..t....','...ccggcc...','..ssssssss..','...ssssss...','....ssss....','.....ss.....'] },
+  { name:'Kale', map:[
+    '.tsssssssst.','.s.aaaaaa.s.','.s.aaaaaa.s.','.s........s.','.s........s.','.gssssssssg.','............'] },
+  { name:'Çift Hat', map:[
+    '.t..t..t..t.','............','aaaaaaaaaaaa','............','ssssssssssss','............','ssssssssssss'] },
+  { name:'Satranç', map:[
+    's.s.s.s.s.s.','.a.a.a.a.a.a','c.c.c.c.c.c.','.s.s.s.s.s.s','g...t..t...g','.s.s.s.s.s.s','s.s.s.s.s.s.'] },
+  { name:'Süvari Baskını', map:[
+    '............','...aaaaaa...','...aaaaaa...','............','cccc....cccc','cccc....cccc','....gggg....'] },
+  { name:'Devler Vadisi', map:[
+    '...t....t...','..aaaaaaaa..','............','.g..g..g..g.','..ssssssss..','.g..g..g..g.','..ssssssss..'] },
+  { name:'Kuşatma', map:[
+    'tt........tt','aaaa....aaaa','gg..ssss..gg','ccsssssssscc','ccsssssssscc','..g......g..','............'] },
+  { name:'Son Savaş', map:[
+    '..tt.tt.tt..','aaaaaaaaaaaa','.ggccccccgg.','ssssssssssss','ssssssssssss','.g..g..g..g.','............'] },
+];
+
+function mulberry32(a){ return function(){ a|=0; a=a+0x6D2B79F5|0; let t=Math.imul(a^a>>>15,1|a); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296; }; }
+
+function mapCost(map){ let c=0; for(const row of map) for(const ch of row) if(CODE[ch]) c+=UNITS[CODE[ch]].cost; return c; }
+const BASE_ENDLESS = mapCost(LEVELS[LEVELS.length-1].map);
+
+/* Endless levels after the campaign: seeded shapes and growing budgets */
+function procLevel(n){
+  const rnd = mulberry32(n*7919+13);
+  const shapes = [
+    ['Blok',     (r,c)=> r>=2 && c>=2 && c<=9],
+    ['Kıskaç',   (r,c)=> c<=3 || c>=8 || r<=1],
+    ['Halka',    (r,c)=> ((r===1||r===5)&&c>=2&&c<=9) || ((c===2||c===9)&&r>=1&&r<=5) || (r===3&&(c===5||c===6))],
+    ['Elmas',    (r,c)=> Math.abs(c-5.5)+Math.abs(r-3)*1.6 <= 5.6],
+    ['Sütunlar', (r,c)=> c%3!==2],
+    ['Dalga',    (r,c)=> r<=1 || Math.abs(r-(4+Math.round(Math.sin(c*.9)*1.6)))<=1],
+    ['Saflar',   (r,c)=> r%2===0],
+  ];
+  const [sname, fn] = shapes[Math.floor(rnd()*shapes.length)];
+  let budget = Math.round(BASE_ENDLESS*(1+(n-LEVELS.length)*0.08)/10)*10;
+  const grid = Array.from({length:EROWS},()=>Array(COLS).fill('.'));
+  const cells=[];
+  for(let r=0;r<EROWS;r++) for(let c=0;c<COLS;c++) if(fn(r,c)) cells.push([r,c,rnd()]);
+  cells.sort((a,b)=> (b[0]-a[0]) || (a[2]-b[2]));
+  const bands = r => r>=5 ? {s:6,c:2,g:2} : r>=2 ? {s:3,a:3,c:2,g:1} : {a:4,t:3};
+  const pick = w => { let tot=0; for(const k in w) tot+=w[k]; let x=rnd()*tot; for(const k in w){ x-=w[k]; if(x<=0) return k; } return 's'; };
+  for(const [r,c] of cells){
+    let ch = pick(bands(r));
+    if(UNITS[CODE[ch]].cost>budget) ch='s';
+    if(UNITS[CODE[ch]].cost>budget) continue;
+    grid[r][c]=ch; budget-=UNITS[CODE[ch]].cost;
+  }
+  for(let tries=0; tries<200 && budget>=170; tries++){
+    const [r,c] = cells[Math.floor(rnd()*cells.length)] || [0,0];
+    if(grid[r][c]==='s'){ grid[r][c]='g'; budget-=170; }
+    else if(grid[r][c]==='a' && budget>=240){ grid[r][c]='t'; budget-=240; }
+  }
+  return { name:`${sname} · Sonsuz`, map:grid.map(r=>r.join('')) };
+}
+
+function getLevel(n){
+  const src = n<=LEVELS.length ? LEVELS[n-1] : procLevel(n);
+  const cost = mapCost(src.map);
+  const ratio = n<=12 ? 1.4-(n-1)*(0.35/11) : 1.03;
+  return { n, name:src.name, map:src.map, cost, gold:Math.ceil(cost*ratio/10)*10 };
+}
+
+/* ---------- State ---------- */
+const S = {
+  level:1, lv:null, mode:'plan', grid:[], selected:'soldier', speed:1, muted:false,
+  units:[], teams:[[],[]], proj:[], fx:[], time:0, btime:0, startVal:[1,1],
+  winner:-1, endT:0, lastGrid:{}, nextId:0,
+};
+let progress = { unlocked:1, stars:{}, current:1 };
+const STORE_KEY = 'cop-ordu-v1';
+function loadProgress(){
+  try{ const p = JSON.parse(localStorage.getItem(STORE_KEY)||'null'); if(p && p.unlocked) progress = Object.assign(progress,p); }catch(e){}
+}
+function saveProgress(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(progress)); }catch(e){} }
+
+const emptyGrid = () => Array(PROWS*COLS).fill(null);
+const unlocked = t => UNITS[t].unlock <= S.level;
+const spent = () => S.grid.reduce((a,t)=> a + (t?UNITS[t].cost:0), 0);
+const goldLeft = () => S.lv.gold - spent();
+
+/* ---------- Unit factory ---------- */
+function spawnCell(team, type, c, r){
+  const U = UNITS[type];
+  const rnd = mulberry32(team*100003 + r*131 + c*7 + S.level*9176);
+  const cx = c*CELL + CELL/2, cy = r*CELL;
+  for(const [ox,oy] of LAYOUT[type]){
+    const u = {
+      id:S.nextId++, team, type, r:U.r, m:U.r*U.r,
+      x:cx+ox+(rnd()-.5)*2.4, y:cy+oy+(rnd()-.5)*2.4,
+      hp:U.hp, maxhp:U.hp, alive:true, target:null,
+      retarget:rnd()*.3, cd:rnd()*.6, atkT:0, phase:rnd()*TAU,
+      face: team===0 ? 1 : -1, aim: team===0 ? -Math.PI/2 : Math.PI/2,
+      moving:false, charged:false, jump:0, bk:0,
+    };
+    S.units.push(u); S.teams[team].push(u);
+  }
+}
+function buildArmies(){
+  S.units=[]; S.teams=[[],[]]; S.nextId=0;
+  S.lv.map.forEach((row,r)=>{ for(let c=0;c<COLS;c++){ const t=CODE[row[c]]; if(t) spawnCell(1,t,c,r); } });
+  S.grid.forEach((t,i)=>{ if(t) spawnCell(0,t,i%COLS,PROW0+Math.floor(i/COLS)); });
+}
+function teamValue(team){
+  let v=0; for(const u of S.teams[team]) if(u.alive){ const U=UNITS[u.type]; v += U.cost/U.squad * u.hp/u.maxhp; }
+  return v;
+}
+
+/* ---------- Ground layer (fallen soldiers, scorch marks) ---------- */
+const ground = document.createElement('canvas');
+ground.width = W*2; ground.height = H*2;
+const gctx = ground.getContext('2d');
+function resetGround(){ gctx.setTransform(1,0,0,1,0,0); gctx.clearRect(0,0,ground.width,ground.height); gctx.setTransform(2,0,0,2,0,0); gctx.lineCap='round'; gctx.lineJoin='round'; }
+
+/* ---------- Simulation ---------- */
+const BS = 30, BW = Math.ceil(W/BS), BH = Math.ceil(H/BS);
+const buckets = Array.from({length:BW*BH}, ()=>[]);
+
+function nearest(u){
+  const list = S.teams[1-u.team]; let best=null, bd=Infinity;
+  const cav = u.type==='cavalry';
+  for(const e of list){
+    if(!e.alive) continue;
+    const dx=e.x-u.x, dy=e.y-u.y; let d=dx*dx+dy*dy;
+    if(cav && (e.type==='archer'||e.type==='tank')) d*=.3;
+    if(d<bd){ bd=d; best=e; }
+  }
+  return best;
+}
+function hurt(e, dmg){
+  if(!e.alive) return;
+  e.hp -= dmg;
+  if(e.hp<=0) kill(e);
+}
+function kill(u){
+  u.alive=false; u.hp=0;
+  const body = { type:u.type, x:u.x, y:u.y, face:u.face, team:u.team, aim:u.aim, moving:false, atkT:0, phase:0, r:u.r, hp:1, maxhp:1, jump:0 };
+  if(S.fx.length<500) S.fx.push({ k:'fall', u:body, t:0, dur:.45 });
+  else stampDead(body);
+}
+function splashHit(team, x, y, rad, dmg, exclude){
+  for(const e of S.teams[1-team]){
+    if(!e.alive || e===exclude) continue;
+    const d = Math.hypot(e.x-x, e.y-y);
+    if(d < rad+e.r) hurt(e, dmg*(1-.5*Math.min(1,d/rad)));
+  }
+}
+function addFx(f){ if(S.fx.length<500) S.fx.push(f); }
+
+function attack(u, t, d){
+  const U = UNITS[u.type];
+  let dmg = U.dmg*(.85+Math.random()*.3);
+  switch(u.type){
+    case 'archer':
+      S.proj.push({ k:'arrow', x0:u.x+u.face*3.6, y0:u.y-8.4, tgt:t, tx:t.x, ty:t.y-6, t:0, dur:Math.max(.25,d/230), dmg, team:u.team });
+      sfx('bow'); break;
+    case 'tank':
+      S.proj.push({ k:'shell', x0:u.x+Math.cos(u.aim)*12, y0:u.y-14+Math.sin(u.aim)*5, tx:t.x, ty:t.y, t:0, dur:Math.max(.3,d/240), dmg, team:u.team, splash:U.splash });
+      addFx({ k:'muzzle', x:u.x+Math.cos(u.aim)*13, y:u.y-14+Math.sin(u.aim)*5.5, t:0, dur:.15 });
+      sfx('cannon'); break;
+    case 'giant':
+      hurt(t, dmg); splashHit(u.team, t.x, t.y, U.splash, dmg*.55, t);
+      addFx({ k:'thud', x:t.x, y:t.y, r:U.splash, t:0, dur:.35 });
+      sfx('thud'); break;
+    case 'cavalry':
+      if(!u.charged){ dmg*=U.charge; u.charged=true; addFx({ k:'clash', x:t.x, y:t.y-8, t:0, dur:.2 }); }
+      hurt(t, dmg); sfx('clash'); break;
+    default:
+      hurt(t, dmg);
+      if(Math.random()<.12) addFx({ k:'clash', x:(u.x+t.x)/2, y:(u.y+t.y)/2-8, t:0, dur:.18 });
+      sfx('clash');
+  }
+}
+
+function separate(){
+  for(const b of buckets) b.length=0;
+  for(const u of S.units){
+    if(!u.alive) continue;
+    const bx = Math.max(0,Math.min(BW-1,(u.x/BS)|0)), by = Math.max(0,Math.min(BH-1,(u.y/BS)|0));
+    u.bk = bx+by*BW; buckets[u.bk].push(u);
+  }
+  for(const u of S.units){
+    if(!u.alive) continue;
+    const bx = u.bk%BW, by = (u.bk/BW)|0;
+    for(let oy=-1; oy<=1; oy++){
+      const yy=by+oy; if(yy<0||yy>=BH) continue;
+      for(let ox=-1; ox<=1; ox++){
+        const xx=bx+ox; if(xx<0||xx>=BW) continue;
+        for(const v of buckets[xx+yy*BW]){
+          if(v.id<=u.id) continue;
+          let dx=v.x-u.x, dy=v.y-u.y;
+          const min=(u.r+v.r)*.85, d2=dx*dx+dy*dy;
+          if(d2>=min*min) continue;
+          let d=Math.sqrt(d2);
+          if(d<.01){ dx=Math.random()-.5; dy=Math.random()-.5; d=Math.hypot(dx,dy); }
+          const push=(min-d)*.5, tot=u.m+v.m, nx=dx/d, ny=dy/d;
+          u.x-=nx*push*v.m/tot*2; u.y-=ny*push*v.m/tot*2;
+          v.x+=nx*push*u.m/tot*2; v.y+=ny*push*u.m/tot*2;
+        }
+      }
+    }
+  }
+  for(const u of S.units){
+    if(!u.alive) continue;
+    u.x = Math.max(u.r, Math.min(W-u.r, u.x));
+    u.y = Math.max(u.r+18, Math.min(H-2, u.y));
+  }
+}
+
+function step(dt){
+  S.btime += dt;
+  const fighting = S.winner<0;
+  for(const u of S.units){
+    if(!u.alive) continue;
+    const U = UNITS[u.type];
+    u.cd-=dt; u.retarget-=dt; if(u.atkT>0) u.atkT=Math.max(0,u.atkT-dt);
+    if(!fighting){ u.moving=false; continue; }
+    let t = u.target;
+    if(!t || !t.alive || u.retarget<=0){ t = u.target = nearest(u); u.retarget=.35+Math.random()*.35; }
+    if(!t){ u.moving=false; continue; }
+    const dx=t.x-u.x, dy=t.y-u.y, d=Math.hypot(dx,dy)||.001;
+    if(Math.abs(dx)>1.5) u.face = dx>0?1:-1;
+    if(u.type==='tank') u.aim = Math.atan2(dy,dx);
+    if(d-u.r-t.r > U.range){
+      const sp=U.speed*dt; u.x+=dx/d*sp; u.y+=dy/d*sp;
+      u.moving=true; u.phase+=dt*Math.min(U.speed,30)*.33;
+    } else {
+      u.moving=false;
+      if(u.cd<=0){ attack(u,t,d); u.cd=U.cd*(.85+Math.random()*.3); u.atkT=ANIM[u.type]; }
+    }
+  }
+  separate();
+
+  for(const p of S.proj){
+    p.t+=dt;
+    if(p.k==='arrow' && p.tgt.alive){ p.tx=p.tgt.x; p.ty=p.tgt.y-6; }
+    if(p.t>=p.dur){
+      p.done=true;
+      if(p.k==='arrow'){
+        if(p.tgt.alive) hurt(p.tgt,p.dmg);
+        else { gctx.strokeStyle='rgba(27,34,48,.35)'; gctx.lineWidth=.7; gctx.beginPath(); gctx.moveTo(p.tx,p.ty+6); gctx.lineTo(p.tx+(p.tx>p.x0?-3:3),p.ty+2); gctx.stroke(); }
+      } else {
+        splashHit(p.team, p.tx, p.ty, p.splash, p.dmg, null);
+        addFx({ k:'boom', x:p.tx, y:p.ty, r:p.splash, t:0, dur:.5 });
+        const g = gctx.createRadialGradient(p.tx,p.ty,0,p.tx,p.ty,p.splash*.8);
+        g.addColorStop(0,'rgba(27,34,48,.16)'); g.addColorStop(1,'rgba(27,34,48,0)');
+        gctx.fillStyle=g; gctx.beginPath(); gctx.ellipse(p.tx,p.ty,p.splash*.8,p.splash*.55,0,0,TAU); gctx.fill();
+      }
+    }
+  }
+  S.proj = S.proj.filter(p=>!p.done);
+
+  for(const f of S.fx){
+    f.t+=dt;
+    if(f.t>=f.dur){ f.done=true; if(f.k==='fall') stampDead(f.u); }
+  }
+  S.fx = S.fx.filter(f=>!f.done);
+
+  S.teams[0] = S.teams[0].filter(u=>u.alive);
+  S.teams[1] = S.teams[1].filter(u=>u.alive);
+
+  if(fighting){
+    const a=S.teams[0].length, b=S.teams[1].length;
+    if(a===0 || b===0 || S.btime>150){
+      S.winner = (b===0 && a>0) ? 0 : (a===0 ? 1 : (teamValue(0)>teamValue(1)?0:1));
+      S.endT = 1.6;
+      sfx(S.winner===0?'win':'lose');
+    }
+  } else {
+    S.endT -= dt;
+    if(S.endT<=0 && S.mode==='battle') showResult();
+  }
+}
+
+/* ---------- Drawing ---------- */
+function addSmall(c, u, heads){
+  const x=u.x, y=u.y-(u.jump||0), f=u.face;
+  const sw = u.moving ? Math.sin(u.phase)*2.8 : 1.1;
+  c.moveTo(x-sw,y); c.lineTo(x,y-5); c.lineTo(x+sw,y);
+  c.moveTo(x,y-5); c.lineTo(x,y-10);
+  heads.push(x, y-12.4);
+  if(u.type==='soldier'){
+    const k = u.atkT>0 ? u.atkT/ANIM.soldier : 0;
+    const ang = k>0 ? (.5-k*2.4) : -1.05;
+    const hx=x+f*3, hy=y-7.4;
+    c.moveTo(x-f*2.6,y-6.2); c.lineTo(x,y-9); c.lineTo(hx,hy);
+    c.lineTo(hx+f*Math.cos(ang)*6.5, hy+Math.sin(ang)*6.5);
+  } else {
+    const k = u.atkT>0 ? 1 : 0;
+    const bx=x+f*3.6, by=y-8.4;
+    c.moveTo(x-f*(1.5+k*1.8),y-8.6); c.lineTo(x,y-9); c.lineTo(bx,by);
+    const a0 = f>0 ? -1.15 : Math.PI-1.15, a1 = f>0 ? 1.15 : Math.PI+1.15;
+    c.moveTo(bx+Math.cos(a0)*4.6, by+Math.sin(a0)*4.6); c.arc(bx,by,4.6,a0,a1);
+  }
+}
+function fillHeads(c, h, r){ for(let i=0;i<h.length;i+=2){ c.moveTo(h[i]+r,h[i+1]); c.arc(h[i],h[i+1],r,0,TAU); } }
+
+function drawCav(c, u, col){
+  const x=u.x, y=u.y-(u.jump||0), f=u.face, g=u.moving?Math.sin(u.phase*1.3):0;
+  c.strokeStyle=HORSE; c.lineWidth=2; c.beginPath();
+  c.moveTo(x-f*9,y-4.5); c.lineTo(x-f*6.5,y-7.5); c.lineTo(x+f*6,y-8); c.lineTo(x+f*8.5,y-12.5); c.lineTo(x+f*11.5,y-11);
+  c.moveTo(x+f*5,y-8);   c.lineTo(x+f*(5+g*2.6),y);
+  c.moveTo(x+f*3.6,y-8); c.lineTo(x+f*(3.6-g*2.6),y);
+  c.moveTo(x-f*5,y-7.6); c.lineTo(x-f*(5-g*2.6),y);
+  c.moveTo(x-f*3.6,y-7.6); c.lineTo(x-f*(3.6+g*2.6),y);
+  c.stroke();
+  const k = u.atkT>0 ? u.atkT/ANIM.cavalry : 0;
+  c.strokeStyle=col; c.lineWidth=1.4; c.beginPath();
+  c.moveTo(x-f*1.6,y-5.5); c.lineTo(x,y-9); c.lineTo(x+f*1.6,y-5.5);
+  c.moveTo(x,y-9); c.lineTo(x,y-14.5);
+  c.moveTo(x-f*4,y-12.5); c.lineTo(x+f*(13+k*4), y-14.5+k*4);
+  c.stroke();
+  c.fillStyle=col; c.beginPath(); c.arc(x,y-16.8,2.4,0,TAU); c.fill();
+}
+function drawGiant(c, u, col){
+  const x=u.x, y=u.y-(u.jump||0), f=u.face, sw=u.moving?Math.sin(u.phase)*6:2.6;
+  const k = u.atkT>0 ? u.atkT/ANIM.giant : 0;
+  const ang = k>0 ? (.6-k*2.7) : -1.25;
+  const hx=x+f*7, hy=y-19;
+  c.strokeStyle=col; c.lineWidth=3; c.beginPath();
+  c.moveTo(x-sw,y); c.lineTo(x,y-13); c.lineTo(x+sw,y);
+  c.moveTo(x,y-13); c.lineTo(x,y-27);
+  c.moveTo(x-f*7,y-16); c.lineTo(x,y-24); c.lineTo(hx,hy);
+  c.stroke();
+  c.strokeStyle=INK; c.lineWidth=4.6; c.beginPath();
+  c.moveTo(hx,hy); c.lineTo(hx+f*Math.cos(ang)*15, hy+Math.sin(ang)*15); c.stroke();
+  c.fillStyle=col; c.beginPath(); c.arc(x,y-32.5,5.2,0,TAU); c.fill();
+}
+function rrect(c,x,y,w,h,r){ c.beginPath(); c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r); c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath(); }
+function drawTank(c, u, col){
+  const x=u.x, y=u.y-(u.jump||0);
+  const rec = u.atkT>0 ? u.atkT/ANIM.tank*2.5 : 0;
+  c.lineWidth=1.4; c.strokeStyle=INK;
+  c.fillStyle='#eef1f5'; rrect(c,x-14,y-7.5,28,7.5,3.7); c.fill(); c.stroke();
+  c.beginPath(); for(let i=-2;i<=2;i++){ c.moveTo(x+i*5.4+1.7,y-3.7); c.arc(x+i*5.4,y-3.7,1.7,0,TAU); } c.stroke();
+  c.fillStyle=col; c.beginPath();
+  c.moveTo(x-12.5,y-7.5); c.lineTo(x+12.5,y-7.5); c.lineTo(x+10,y-12.5); c.lineTo(x-10,y-12.5); c.closePath(); c.fill(); c.stroke();
+  const ca=Math.cos(u.aim), sa=Math.sin(u.aim)*.45;
+  const bx=x-ca*rec, by=y-15-sa*rec;
+  c.lineWidth=2.8; c.beginPath(); c.moveTo(bx,by); c.lineTo(bx+ca*13, by+sa*13); c.stroke();
+  c.lineWidth=1.4; c.beginPath(); c.moveTo(x-5.8,y-12.5); c.arc(x,y-12.5,5.8,Math.PI,TAU); c.closePath(); c.fill(); c.stroke();
+}
+function drawUnit(c, u, col){
+  if(u.type==='soldier'||u.type==='archer'){
+    const h=[]; c.strokeStyle=col; c.lineWidth=1.25; c.beginPath(); addSmall(c,u,h); c.stroke();
+    c.fillStyle=col; c.beginPath(); fillHeads(c,h,2.3); c.fill();
+  } else if(u.type==='cavalry') drawCav(c,u,col);
+  else if(u.type==='giant') drawGiant(c,u,col);
+  else drawTank(c,u,col);
+}
+function hpBar(c, u){
+  if(u.hp>=u.maxhp) return;
+  const top = { cavalry:-22, giant:-42, tank:-23 }[u.type];
+  const w=u.r*2+6, x0=u.x-w/2, y0=u.y+top;
+  c.fillStyle='rgba(27,34,48,.16)'; c.fillRect(x0,y0,w,2.4);
+  c.fillStyle=TEAM_COL[u.team]; c.fillRect(x0,y0,w*Math.max(0,u.hp/u.maxhp),2.4);
+}
+function stampDead(b){
+  gctx.save();
+  if(b.type==='tank'){
+    gctx.globalAlpha=.35; drawTank(gctx,{...b},'#9aa3b2');
+  } else {
+    gctx.globalAlpha=.2; gctx.translate(b.x,b.y); gctx.rotate(-b.face*1.45);
+    drawUnit(gctx,{...b,x:0,y:0},TEAM_COL[b.team]);
+  }
+  gctx.restore();
+}
+
+/* ---------- Canvas + view ---------- */
+const cvs = document.getElementById('field'), ctx = cvs.getContext('2d');
+const stage = document.getElementById('stage');
+let view = { scale:1, dpr:1 };
+function resize(){
+  const r = stage.getBoundingClientRect();
+  if(r.width<10 || r.height<10) return;
+  const dpr = Math.min(window.devicePixelRatio||1, 2);
+  const s = Math.min(r.width/W, r.height/H);
+  const cw = Math.floor(W*s), ch = Math.floor(H*s);
+  cvs.style.width = cw+'px'; cvs.style.height = ch+'px';
+  cvs.width = Math.round(cw*dpr); cvs.height = Math.round(ch*dpr);
+  view = { scale:s, dpr };
+}
+new ResizeObserver(resize).observe(stage);
+
+let hover = -1;
+function drawField(){
+  const plan = S.mode==='plan';
+  ctx.fillStyle='#fff'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='rgba(210,57,44,.045)'; ctx.fillRect(0,0,W,EROWS*CELL);
+  ctx.fillStyle='rgba(36,86,211,.055)'; ctx.fillRect(0,PROW0*CELL,W,PROWS*CELL);
+  // graph paper
+  ctx.lineWidth=.5; ctx.strokeStyle='#edf1f7'; ctx.beginPath();
+  for(let x=10;x<W;x+=10){ ctx.moveTo(x,0); ctx.lineTo(x,H); }
+  for(let y=10;y<H;y+=10){ ctx.moveTo(0,y); ctx.lineTo(W,y); }
+  ctx.stroke();
+  // deployment cells
+  ctx.lineWidth=.8; ctx.strokeStyle = plan ? '#c9d3e2' : '#e2e8f1'; ctx.beginPath();
+  for(const [r0,r1] of [[0,EROWS],[PROW0,ROWS]]){
+    for(let r=r0;r<=r1;r++){ ctx.moveTo(0,r*CELL); ctx.lineTo(W,r*CELL); }
+    for(let c=0;c<=COLS;c++){ ctx.moveTo(c*CELL,r0*CELL); ctx.lineTo(c*CELL,r1*CELL); }
+  }
+  ctx.stroke();
+  ctx.setLineDash([6,6]); ctx.strokeStyle='#bcc5d3'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(0,H/2); ctx.lineTo(W,H/2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.font='600 11px "Barlow Condensed", "Arial Narrow", sans-serif';
+  ctx.fillStyle='rgba(210,57,44,.55)'; ctx.fillText('DÜŞMAN BÖLGESİ', 8, EROWS*CELL+14);
+  ctx.fillStyle='rgba(36,86,211,.6)'; ctx.fillText('SENİN BÖLGEN', 8, PROW0*CELL-6);
+  ctx.fillStyle='rgba(27,34,48,.35)'; ctx.textAlign='right'; ctx.fillText('CEPHE HATTI', W-8, H/2-6); ctx.textAlign='left';
+}
+function drawHover(){
+  if(S.mode!=='plan' || hover<0) return;
+  const c=hover%COLS, r=PROW0+Math.floor(hover/COLS);
+  const x=c*CELL, y=r*CELL;
+  if(S.grid[hover]){
+    ctx.fillStyle='rgba(210,57,44,.1)'; ctx.fillRect(x+1,y+1,CELL-2,CELL-2);
+    ctx.strokeStyle='rgba(210,57,44,.8)'; ctx.lineWidth=1.6; ctx.beginPath();
+    ctx.moveTo(x+CELL-10,y+5); ctx.lineTo(x+CELL-4,y+11); ctx.moveTo(x+CELL-4,y+5); ctx.lineTo(x+CELL-10,y+11); ctx.stroke();
+    return;
+  }
+  const t=S.selected, ok = unlocked(t) && goldLeft()>=UNITS[t].cost;
+  ctx.setLineDash([3,3]); ctx.strokeStyle= ok ? TEAM_COL[0] : TEAM_COL[1]; ctx.lineWidth=1.2;
+  ctx.strokeRect(x+1.5,y+1.5,CELL-3,CELL-3); ctx.setLineDash([]);
+  ctx.save(); ctx.globalAlpha=.35;
+  for(const [ox,oy] of LAYOUT[t]){
+    drawUnit(ctx,{type:t,x:x+CELL/2+ox,y:y+oy,face:1,team:0,moving:false,atkT:0,phase:0,aim:-Math.PI/2,r:UNITS[t].r,hp:1,maxhp:1,jump:0}, ok?TEAM_COL[0]:TEAM_COL[1]);
+  }
+  ctx.restore();
+}
+
+const headBuf = [];
+function render(){
+  ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,cvs.width,cvs.height);
+  const k = view.scale*view.dpr; ctx.setTransform(k,0,0,k,0,0);
+  ctx.lineCap='round'; ctx.lineJoin='round';
+  drawField();
+  ctx.drawImage(ground,0,0,W,H);
+
+  // victory hop
+  if(S.winner>=0){ for(const u of S.teams[S.winner]) u.jump = Math.abs(Math.sin(S.time*7+u.phase))*2.4; }
+
+  for(const f of S.fx){
+    if(f.k!=='fall') continue;
+    const p=f.t/f.dur;
+    ctx.save(); ctx.globalAlpha=1-p*.75;
+    if(f.u.type==='tank'){ drawTank(ctx,f.u,TEAM_COL[f.u.team]); }
+    else { ctx.translate(f.u.x,f.u.y); ctx.rotate(-f.u.face*1.45*p); drawUnit(ctx,{...f.u,x:0,y:0},TEAM_COL[f.u.team]); }
+    ctx.restore();
+  }
+
+  // stick soldiers & archers, batched per army
+  for(let t=0;t<2;t++){
+    headBuf.length=0;
+    ctx.strokeStyle=TEAM_COL[t]; ctx.lineWidth=1.25; ctx.beginPath();
+    for(const u of S.teams[t]) if(u.alive && (u.type==='soldier'||u.type==='archer')) addSmall(ctx,u,headBuf);
+    ctx.stroke();
+    ctx.fillStyle=TEAM_COL[t]; ctx.beginPath(); fillHeads(ctx,headBuf,2.3); ctx.fill();
+  }
+  // big units in depth order
+  const big=[];
+  for(const u of S.units) if(u.alive && u.type!=='soldier' && u.type!=='archer') big.push(u);
+  big.sort((a,b)=>a.y-b.y);
+  for(const u of big){ drawUnit(ctx,u,TEAM_COL[u.team]); hpBar(ctx,u); }
+
+  // projectiles
+  for(const p of S.proj){
+    const q=Math.min(1,p.t/p.dur), h=p.k==='arrow'?p.dur*55:p.dur*70;
+    const gx=p.x0+(p.tx-p.x0)*q, gy=p.y0+(p.ty-p.y0)*q, py=gy-Math.sin(Math.PI*q)*h;
+    if(p.k==='arrow'){
+      const q2=Math.max(0,q-.05), gx2=p.x0+(p.tx-p.x0)*q2, py2=p.y0+(p.ty-p.y0)*q2-Math.sin(Math.PI*q2)*h;
+      let dx=gx-gx2, dy=py-py2; const d=Math.hypot(dx,dy)||1; dx/=d; dy/=d;
+      ctx.strokeStyle=INK; ctx.lineWidth=.9; ctx.beginPath(); ctx.moveTo(gx,py); ctx.lineTo(gx-dx*6,py-dy*6); ctx.stroke();
+    } else {
+      ctx.fillStyle='rgba(27,34,48,.15)'; ctx.beginPath(); ctx.ellipse(gx,gy,3,1.5,0,0,TAU); ctx.fill();
+      ctx.fillStyle=INK; ctx.beginPath(); ctx.arc(gx,py,2.5,0,TAU); ctx.fill();
+    }
+  }
+  // effects
+  for(const f of S.fx){
+    const p=f.t/f.dur;
+    if(f.k==='boom'){
+      ctx.fillStyle=`rgba(244,150,40,${(1-p)*.5})`; ctx.beginPath(); ctx.arc(f.x,f.y,f.r*(.3+.5*p),0,TAU); ctx.fill();
+      ctx.strokeStyle=`rgba(27,34,48,${(1-p)*.6})`; ctx.lineWidth=1.5; ctx.beginPath(); ctx.arc(f.x,f.y,f.r*(.4+.6*p),0,TAU); ctx.stroke();
+    } else if(f.k==='thud'){
+      ctx.strokeStyle=`rgba(27,34,48,${(1-p)*.5})`; ctx.lineWidth=1.3; ctx.beginPath(); ctx.ellipse(f.x,f.y,f.r*p,f.r*p*.6,0,0,TAU); ctx.stroke();
+    } else if(f.k==='clash'){
+      ctx.strokeStyle=`rgba(230,150,20,${1-p})`; ctx.lineWidth=1.2; ctx.beginPath();
+      ctx.moveTo(f.x-3,f.y-3); ctx.lineTo(f.x+3,f.y+3); ctx.moveTo(f.x+3,f.y-3); ctx.lineTo(f.x-3,f.y+3); ctx.stroke();
+    } else if(f.k==='muzzle'){
+      ctx.fillStyle=`rgba(244,150,40,${1-p})`; ctx.beginPath(); ctx.arc(f.x,f.y,3+p*3,0,TAU); ctx.fill();
+    }
+  }
+  drawHover();
+}
+
+/* ---------- Audio (synthesized, starts after first tap) ---------- */
+let AC=null, noiseBuf=null; const lastPlay={};
+function ensureAudio(){
+  if(AC || S.muted) return;
+  try{
+    AC = new (window.AudioContext||window.webkitAudioContext)();
+    noiseBuf = AC.createBuffer(1, AC.sampleRate*.5, AC.sampleRate);
+    const d=noiseBuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+  }catch(e){ AC=null; }
+}
+function env(g,t0,vol,dur){ g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(vol,t0+.008); g.gain.exponentialRampToValueAtTime(.0001,t0+dur); }
+function osc(type,f0,f1,dur,vol,delay=0){
+  const t0=AC.currentTime+delay, o=AC.createOscillator(), g=AC.createGain();
+  o.type=type; o.frequency.setValueAtTime(f0,t0); if(f1) o.frequency.exponentialRampToValueAtTime(f1,t0+dur);
+  env(g,t0,vol,dur); o.connect(g).connect(AC.destination); o.start(t0); o.stop(t0+dur+.02);
+}
+function noise(dur,vol,ftype,freq){
+  const t0=AC.currentTime, s=AC.createBufferSource(), f=AC.createBiquadFilter(), g=AC.createGain();
+  s.buffer=noiseBuf; f.type=ftype; f.frequency.value=freq; env(g,t0,vol,dur);
+  s.connect(f).connect(g).connect(AC.destination); s.start(t0); s.stop(t0+dur+.02);
+}
+function sfx(name){
+  if(S.muted || !AC) return;
+  const now=performance.now(), gap={clash:70,bow:60,cannon:90,thud:90}[name]||0;
+  if(gap && now-(lastPlay[name]||0)<gap) return; lastPlay[name]=now;
+  try{
+    switch(name){
+      case 'place': osc('square',520,760,.06,.035); break;
+      case 'erase': osc('square',320,200,.07,.035); break;
+      case 'deny':  osc('square',160,120,.12,.04); break;
+      case 'horn':  osc('sawtooth',196,262,.7,.06); osc('sawtooth',147,196,.7,.04); break;
+      case 'clash': noise(.05,.05,'highpass',2600); break;
+      case 'bow':   noise(.04,.025,'bandpass',1600); break;
+      case 'cannon':noise(.35,.18,'lowpass',500); osc('sine',90,40,.3,.12); break;
+      case 'thud':  osc('sine',120,48,.25,.16); break;
+      case 'win':   [523,659,784,1046].forEach((f,i)=>osc('triangle',f,0,.18,.07,i*.12)); break;
+      case 'lose':  [392,330,262].forEach((f,i)=>osc('sawtooth',f,f*.97,.25,.04,i*.18)); break;
+    }
+  }catch(e){}
+}
+
+/* ---------- UI ---------- */
+const $ = id => document.getElementById(id);
+const fmt = n => Math.round(n).toLocaleString('tr-TR');
+let toastTimer=0;
+function toast(msg){
+  const t=$('toast'); t.textContent=msg; t.hidden=false;
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>{ t.hidden=true; }, 2200);
+}
+function shakeGold(){ const g=$('goldBox'); g.classList.remove('shake'); void g.offsetWidth; g.classList.add('shake'); }
+
+function drawIcon(cv, type){
+  const d=2; cv.width=72*d; cv.height=52*d;
+  const c=cv.getContext('2d'); c.scale(d,d); c.lineCap='round'; c.lineJoin='round';
+  const sc={soldier:2.2,archer:2.2,cavalry:2,giant:1.15,tank:1.7}[type];
+  c.translate(type==='cavalry'?33:36,47); c.scale(sc,sc);
+  const xs = type==='soldier'?[-7,0,7] : type==='archer'?[-6,5] : [0];
+  for(const x of xs) drawUnit(c,{type,x,y:0,face:1,team:0,moving:false,atkT:0,phase:0,aim:-.25,r:UNITS[type].r,hp:1,maxhp:1,jump:0},TEAM_COL[0]);
+}
+function buildCards(){
+  const box=$('cards'); box.innerHTML='';
+  ORDER.forEach((t,i)=>{
+    const U=UNITS[t], b=document.createElement('button');
+    b.className='card'; b.id='card-'+t; b.dataset.type=t; b.setAttribute('role','option');
+    b.title=`${U.name} (${i+1})`;
+    b.innerHTML=`<canvas></canvas><span class="nm">${U.name}</span><span class="meta"><span class="cost"><i class="coin"></i>${U.cost}</span><span class="sq">×${U.squad}</span></span>`;
+    drawIcon(b.querySelector('canvas'), t);
+    b.addEventListener('click',()=>selectUnit(t));
+    box.appendChild(b);
+  });
+}
+function selectUnit(t){
+  if(!unlocked(t)){ toast(`${UNITS[t].name}, Bölüm ${UNITS[t].unlock}'te açılır.`); sfx('deny'); return; }
+  S.selected=t; refresh();
+}
+function refreshCards(){
+  const left=goldLeft();
+  for(const t of ORDER){
+    const b=$('card-'+t), U=UNITS[t], lock=!unlocked(t);
+    b.classList.toggle('locked',lock);
+    b.classList.toggle('poor',!lock && left<U.cost);
+    b.setAttribute('aria-selected', String(S.selected===t));
+    let l=b.querySelector('.lock'); if(lock && !l){ l=document.createElement('span'); l.className='lock'; b.appendChild(l); }
+    if(l){ if(lock) l.textContent=`Bölüm ${U.unlock}`; else l.remove(); }
+    let n=b.querySelector('.new'); const isNew = U.unlock===S.level && S.level>1;
+    if(isNew && !n){ n=document.createElement('span'); n.className='new'; n.textContent='YENİ'; b.appendChild(n); }
+    if(!isNew && n) n.remove();
+  }
+}
+function refreshMeter(){
+  let you, foe;
+  if(S.mode==='plan'){ you=spent(); foe=S.lv.cost; }
+  else { you=teamValue(0); foe=teamValue(1); }
+  const tot=Math.max(1,you+foe);
+  $('barYou').style.width=(you/tot*100)+'%';
+  $('barEnemy').style.width=(foe/tot*100)+'%';
+  $('mYou').textContent=`Sen ${fmt(you)}`;
+  $('mEnemy').textContent=`Düşman ${fmt(foe)}`;
+}
+function refresh(){
+  $('lvlN').textContent = S.level>LEVELS.length ? `Bölüm ${S.level} · Sonsuz` : `Bölüm ${S.level} / ${LEVELS.length}`;
+  $('lvlName').textContent = S.lv.name;
+  $('gold').textContent = fmt(goldLeft());
+  const battle = S.mode!=='plan';
+  $('dock').classList.toggle('busy', battle);
+  $('btnClear').hidden = battle;
+  $('btnSpeed').hidden = !battle;
+  $('btnSpeed').textContent = `Hız ×${S.speed}`;
+  const f=$('btnFight'); f.textContent = battle ? 'GERİ ÇEKİL' : 'SAVAŞ!'; f.classList.toggle('retreat', battle);
+  const U=UNITS[S.selected];
+  $('info').innerHTML = battle
+    ? `<b>Savaş sürüyor.</b> Hız düğmesiyle hızlandır, ya da geri çekilip düzenini değiştir.`
+    : `<b>${U.name} ×${U.squad}</b> · ${U.cost} altın · Can ${U.hp} · Hasar ${U.dmg} · ${U.rng}<br>${U.blurb}`;
+  refreshCards(); refreshMeter();
+}
+
+/* ---------- Placement ---------- */
+const paint = { active:false, mode:'place', last:-1, warned:false };
+function cellAt(e){
+  const r=cvs.getBoundingClientRect();
+  const x=(e.clientX-r.left)/view.scale, y=(e.clientY-r.top)/view.scale;
+  const c=Math.floor(x/CELL), row=Math.floor(y/CELL)-PROW0;
+  if(c<0||c>=COLS||row<0||row>=PROWS) return -1;
+  return row*COLS+c;
+}
+function applyPaint(i){
+  paint.last=i;
+  if(paint.mode==='erase'){
+    if(S.grid[i]){ S.grid[i]=null; sfx('erase'); changed(); }
+    return;
+  }
+  if(S.grid[i]) return;
+  const t=S.selected;
+  if(goldLeft()<UNITS[t].cost){
+    if(!paint.warned){ toast(`Yetersiz altın: ${UNITS[t].name} ${UNITS[t].cost} altın.`); shakeGold(); sfx('deny'); paint.warned=true; }
+    return;
+  }
+  S.grid[i]=t; sfx('place'); changed();
+}
+function changed(){ $('hint').hidden=true; buildArmies(); refresh(); }
+cvs.addEventListener('pointerdown', e=>{
+  ensureAudio();
+  if(S.mode!=='plan') return;
+  const i=cellAt(e); if(i<0) return;
+  e.preventDefault();
+  try{ cvs.setPointerCapture(e.pointerId); }catch(err){}
+  paint.active=true; paint.warned=false; paint.mode = S.grid[i] ? 'erase' : 'place';
+  applyPaint(i);
+});
+cvs.addEventListener('pointermove', e=>{
+  const i=cellAt(e); hover = e.pointerType==='mouse' ? i : -1;
+  if(paint.active && i>=0 && i!==paint.last) applyPaint(i);
+});
+const endPaint=()=>{ paint.active=false; };
+cvs.addEventListener('pointerup', endPaint);
+cvs.addEventListener('pointercancel', endPaint);
+cvs.addEventListener('pointerleave', ()=>{ hover=-1; });
+
+/* ---------- Flow ---------- */
+function loadLevel(n, keepGrid){
+  S.level=n; S.lv=getLevel(n); S.mode='plan'; S.winner=-1; S.proj=[]; S.fx=[];
+  S.grid = keepGrid && S.lastGrid[n] ? S.lastGrid[n].slice() : emptyGrid();
+  while(spent()>S.lv.gold){ const i=S.grid.findLastIndex(Boolean); if(i<0) break; S.grid[i]=null; }
+  if(!unlocked(S.selected)) S.selected='soldier';
+  progress.current=n; saveProgress();
+  buildArmies(); resetGround(); refresh();
+  $('result').hidden=true;
+  const fresh = ORDER.find(t=>UNITS[t].unlock===n && n>1);
+  const hint=$('hint');
+  if(n===1 && !keepGrid){ hint.textContent='Mavi bölgedeki karelere dokun: birlik yerleşir. Dolu kareye dokun: geri alınır.'; hint.hidden=false; }
+  else hint.hidden=true;
+  if(fresh && !keepGrid){ S.selected=fresh; refresh(); toast(`Yeni birlik açıldı: ${UNITS[fresh].name}!`); }
+}
+function startBattle(){
+  if(spent()===0){ toast('Önce ordunu diz: mavi bölgedeki karelere dokun.'); sfx('deny'); return; }
+  S.lastGrid[S.level]=S.grid.slice();
+  buildArmies(); resetGround();
+  S.mode='battle'; S.winner=-1; S.btime=0; S.proj=[]; S.fx=[]; hover=-1;
+  S.startVal=[teamValue(0),teamValue(1)];
+  $('hint').hidden=true;
+  sfx('horn'); refresh();
+}
+function retreat(){
+  S.mode='plan'; S.winner=-1; S.proj=[]; S.fx=[];
+  buildArmies(); resetGround(); refresh();
+}
+function showResult(){
+  S.mode='result';
+  const win=S.winner===0;
+  const ratio = win ? teamValue(0)/Math.max(1,S.startVal[0]) : teamValue(1)/Math.max(1,S.startVal[1]);
+  const pct=Math.round(ratio*100);
+  let stars=0;
+  if(win){
+    stars = ratio>=.5?3 : ratio>=.25?2 : 1;
+    progress.stars[S.level]=Math.max(progress.stars[S.level]||0,stars);
+    progress.unlocked=Math.max(progress.unlocked,S.level+1);
+    saveProgress();
+  }
+  const st=$('stamp'); st.textContent = win?'ZAFER':'YENİLGİ'; st.classList.toggle('lose',!win);
+  st.style.animation='none'; void st.offsetWidth; st.style.animation='';
+  $('stars').hidden=!win;
+  [...$('stars').children].forEach((s,i)=>s.classList.toggle('on',i<stars));
+  $('stars').setAttribute('aria-label',`${stars} yıldız`);
+  $('resText').textContent = win
+    ? `Ordunun %${pct} gücü ayakta kaldı. ${stars<3?'Daha az kayıpla 3 yıldız alabilirsin.':'Kusursuz komuta!'}`
+    : `Düşmanın %${pct} gücü ayakta kaldı. Dizilişini değiştirip tekrar dene.`;
+  $('btnRetry').textContent = win ? 'Tekrar Oyna' : 'Düzeni Değiştir';
+  $('btnNext').textContent = win ? 'Sonraki Bölüm' : 'Tekrar Dene';
+  $('result').hidden=false;
+  $('btnNext').focus();
+}
+
+function buildLevelGrid(){
+  const g=$('lvgrid'); g.innerHTML='';
+  const total=Math.max(LEVELS.length, progress.unlocked);
+  for(let n=1;n<=total;n++){
+    const b=document.createElement('button'); b.className='lvbtn'+(n===S.level?' cur':'');
+    const open=n<=progress.unlocked; b.disabled=!open;
+    const st=progress.stars[n]||0;
+    const name = n<=LEVELS.length ? LEVELS[n-1].name : 'Sonsuz Cephe';
+    b.innerHTML=`<b>${n}</b><small>${open?name:'Kilitli'}</small><span class="st">${'★'.repeat(st)}</span>`;
+    if(open) b.addEventListener('click',()=>{ $('levels').hidden=true; loadLevel(n,true); });
+    g.appendChild(b);
+  }
+}
+
+$('btnFight').addEventListener('click',()=>{ ensureAudio(); S.mode==='plan' ? startBattle() : retreat(); });
+$('btnClear').addEventListener('click',()=>{ if(S.mode!=='plan') return; S.grid=emptyGrid(); sfx('erase'); changed(); });
+$('btnSpeed').addEventListener('click',()=>{ S.speed = S.speed>=3 ? 1 : S.speed+1; refresh(); });
+$('btnRetry').addEventListener('click',()=>{ $('result').hidden=true; loadLevel(S.level,true); });
+$('btnNext').addEventListener('click',()=>{
+  $('result').hidden=true;
+  if(S.winner===0) loadLevel(S.level+1,false); else { loadLevel(S.level,true); startBattle(); }
+});
+$('btnLevels').addEventListener('click',()=>{ buildLevelGrid(); $('levels').hidden=false; });
+$('btnCloseLv').addEventListener('click',()=>{ $('levels').hidden=true; });
+$('levels').addEventListener('click',e=>{ if(e.target.id==='levels') $('levels').hidden=true; });
+$('btnMute').addEventListener('click',()=>{
+  S.muted=!S.muted;
+  $('btnMute').setAttribute('aria-pressed',String(S.muted));
+  $('btnMute').setAttribute('aria-label',S.muted?'Sesi aç':'Sesi kapat');
+  document.getElementById('waves').toggleAttribute('hidden',S.muted);
+  document.getElementById('xmark').toggleAttribute('hidden',!S.muted);
+  if(!S.muted) ensureAudio();
+});
+window.addEventListener('keydown',e=>{
+  if(!$('levels').hidden && e.key==='Escape'){ $('levels').hidden=true; return; }
+  if(S.mode==='plan'){
+    const i=parseInt(e.key,10); if(i>=1 && i<=ORDER.length) selectUnit(ORDER[i-1]);
+  }
+});
+
+/* ---------- Loop ---------- */
+const STEP=1/60; let last=performance.now(), acc=0, meterT=0;
+function frame(now){
+  const dt=Math.min(.05,(now-last)/1000); last=now; S.time+=dt;
+  if(S.mode==='battle' || (S.mode==='result' && S.winner>=0)){
+    acc+=dt*S.speed; let n=0;
+    while(acc>=STEP && n<12){ step(STEP); acc-=STEP; n++; }
+    if(n>=12) acc=0;
+    meterT-=dt; if(meterT<=0 && S.mode==='battle'){ refreshMeter(); meterT=.25; }
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+
+function boot(data){
+  loadProgress();
+  buildCards();
+  resize();
+  let lvl = (data && data.lvl) || progress.current || 1;
+  lvl = Math.max(1, Math.min(lvl, progress.unlocked));
+  loadLevel(lvl,false);
+  if(data && Array.isArray(data.grid) && data.grid.length===PROWS*COLS && data.lvl===lvl){ S.grid=data.grid.slice(); changed(); }
+  requestAnimationFrame(frame);
+}
+window.claude?.hot?.snapshot?.(()=>({ lvl:S.level, grid:S.grid }));
+window.claude?.hot?.ready ? window.claude.hot.ready(boot) : boot(window.claude?.hot?.data ?? {});
+</script>
+
+</body>
+</html>
