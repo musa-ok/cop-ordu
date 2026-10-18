@@ -21,6 +21,10 @@ function lowPolyProps(){
   const tip=new THREE.ConeGeometry(.18,.7,5); tip.translate(0,6.45,0);
   const quiver=new THREE.CylinderGeometry(.24,.2,1.4,6);
   const cape=new THREE.BoxGeometry(1.5,2.6,.08); cape.translate(0,-1.3,0);
+  // giant's horned iron helm and beard
+  const horn = s => { const g=new THREE.ConeGeometry(.2,1.1,6); g.translate(0,.55,0); g.rotateZ(-s*1.05); g.translate(s*.78,.95,0); return g; };
+  const beard=new THREE.ConeGeometry(.55,1.25,6); beard.rotateX(Math.PI); beard.translate(0,-.35,.42);
+  const brow=mBox(1.45,.22,.25,0,.62,.62);
   return {
     sword:[ mPart(mBox(.16,1.75,.05,0,1.15,0),0xd5dae1), mPart(mBox(.7,.1,.16,0,.25,0),0x8a6a3a), mPart(mBox(.1,.45,.1,0,0,0),0x4a3424) ],
     shield:[ mPart(face,0xffffff,'face'), mPart(boss,0xb9bfc7) ],
@@ -28,6 +32,9 @@ function lowPolyProps(){
     lance:[ mPart(shaft,0x7a5230), mPart(tip,0xc9ced6), mPart(mBox(.02,.55,.9,0,5.5,.45),0xffffff,'pennant') ],
     quiver:[ mPart(quiver,0x5c3b22), mPart(mBox(.36,.2,.36,0,.75,0),0xd04030) ],
     cape:[ mPart(cape,0xffffff,'cape') ],
+    horns:[ mPart(horn(1),0xe9e0c8), mPart(horn(-1),0xe9e0c8) ],
+    beard:[ mPart(beard,0x6b4428), mPart(brow,0x4a4f57) ],
+    pauldron:[ mPart(new THREE.SphereGeometry(.62,7,5,0,Math.PI*2,0,Math.PI*.55),0x5d636c), mPart(mBox(.9,.12,.9,0,-.02,0),0x3a3f46) ],
   };
 }
 
@@ -78,7 +85,10 @@ function modelSpecs(A){
                { bone:'Torso', parts:L.cape, pos:[0,.55,-.42], rot:[.12,0,0], tint:{ cape:{ color:0x9aa0aa, mask:1 } } } ],
       anims:melee('Idle_swordRight','Run_swordRight') },
     giant:{ rig:'knight', height:36, measure:[{clip:'Idle_swordRight', t:0}], tint:{ Armor:{ color:0xd4c09a, mask:.75 } },
-      attach:[ { bone:'PalmR', parts:P('hammer'), rot:[-1.05,0,0], scale:.8 } ],
+      attach:[ { bone:'PalmR', parts:P('hammer'), rot:[-1.05,0,0], scale:.8 },
+               helmet({ Grey:{color:0x5d636c}, DarkGrey:{color:0x3a3f46} }, 1.12),
+               { bone:'Head', parts:L.horns }, { bone:'Head', parts:L.beard },
+               { bone:'UpperArmL', parts:L.pauldron, pos:[0,.32,0], rot:[Math.PI,0,0] }, { bone:'UpperArmR', parts:L.pauldron, pos:[0,.32,0], rot:[Math.PI,0,0] } ],
       anims:melee('Idle_swordRight','Walking') },
     horse:{ rig:'horse', height:14, measure:[{clip:'Idle', t:0}],
       anims:{ idle:{ frames:1, layers:[{clip:'Idle', at:0}] }, run:{ frames:6, loop:true, layers:[{clip:'Gallop'}] },
