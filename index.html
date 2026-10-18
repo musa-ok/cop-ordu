@@ -256,7 +256,9 @@ const UNITS = {
 };
 const ORDER = ['soldier','archer','cavalry','giant','tank'];
 const CODE = { s:'soldier', a:'archer', c:'cavalry', g:'giant', t:'tank' };
-const ANIM = { soldier:.25, archer:.3, cavalry:.3, giant:.4, tank:.35, commander:.3 };
+const ANIM = { soldier:.7, archer:.45, cavalry:.6, giant:1.1, tank:.35, commander:.55 };
+// fraction of the attack animation at which the blow lands (or the bolt/arrow leaves)
+const IMPACT = { soldier:.42, archer:.35, cavalry:.45, giant:.5, tank:0, commander:.42 };
 const HIT_H = { soldier:9, archer:9, cavalry:13, giant:22, tank:8, commander:13 };
 const CRY_CD = 15, CRY_R = 95;
 const LAYOUT = {
@@ -381,6 +383,7 @@ function makeUnit(team, type, x, y, rnd){
     heading:head+(rnd()-.5)*.12, aim:head,
     skin: rnd()<.6 ? 0 : rnd()<.6 ? 1 : 2, horse:Math.floor(rnd()*5),
     moving:false, charged:false, jump:0, bk:0, buffT:0, cryCd:team===0?0:5,
+    deathVar:rnd()<.5?0:1, atkVar:0, hitT:0, pend:null, shotAt:-9,
   };
   S.units.push(u); S.teams[team].push(u);
   return u;
@@ -391,6 +394,9 @@ function buildArmies(){
   S.grid.forEach((t,i)=>{ if(t) spawnCell(0,t,i%COLS,PROW0+Math.floor(i/COLS)); });
   const rnd = mulberry32(S.level*31+7);
   S.cmd = [ makeUnit(0,'commander',W/2,H+18,rnd), makeUnit(1,'commander',W/2,-18,rnd) ];
+  // the enemy commander grows into full strength over the first ten levels
+  const k = Math.min(1, .4 + S.level*.06), foe = S.cmd[1];
+  foe.hp = foe.maxhp = Math.round(UNITS.commander.hp*k); foe.dmgMul = .6 + .4*k;
 }
 function teamValue(team){
   let v=0; for(const u of S.teams[team]) if(u.alive){ const U=UNITS[u.type]; v += U.cost/U.squad * u.hp/u.maxhp; }
@@ -413,8 +419,13 @@ function nearest(u){
   }
   return best;
 }
-function hurt(e, dmg){ if(!e.alive) return; e.hp -= dmg; if(e.hp<=0) kill(e); }
-function kill(u){ u.alive=false; u.hp=0; u.dieT=0; u.target=null; u.moving=false; u.atkT=0; }
+function hurt(e, dmg){
+  if(!e.alive) return;
+  e.hp -= dmg;
+  if(e.hp<=0) kill(e);
+  else if(e.atkT<=0 && Math.random() < (e.type==='giant'||e.type==='tank' ? .25 : .6)) e.hitT = HIT_DUR;
+}
+function kill(u){ u.alive=false; u.hp=0; u.dieT=0; u.target=null; u.moving=false; u.atkT=0; u.pend=null; u.hitT=0; }
 function splashHit(team, x, y, rad, dmg, exclude){
   for(const e of S.teams[1-team]){
     if(!e.alive || e===exclude) continue;
@@ -436,7 +447,7 @@ function commanderStrike(u, assist){
     for(const e of foes){ if(!e.alive) continue; const d=Math.hypot(e.x-u.x,e.y-u.y)-e.r-u.r; if(d<22 && d<bd){ bd=d; best=e; } }
     if(best) u.heading=Math.atan2(best.x-u.x,best.y-u.y);
   }
-  const fx=Math.sin(u.heading), fz=Math.cos(u.heading), dmg=U.dmg*(u.buffT>0?1.5:1);
+  const fx=Math.sin(u.heading), fz=Math.cos(u.heading), dmg=U.dmg*(u.buffT>0?1.5:1)*(u.dmgMul||1);
   let hits=0;
   for(const e of foes){
     if(!e.alive) continue;
@@ -471,10 +482,18 @@ function controlStep(u, dt){
     u.heading=turn(u.heading, Math.atan2(dx,dz), dt*10);
     u.moving=true; u.phase+=dt*11;
   } else u.moving=false;
-  if(INPUT.atk && u.cd<=0){ commanderStrike(u,true); u.cd=.45; u.atkT=ANIM.commander; }
+  if(INPUT.atk && u.cd<=0){ u.cd=.6; u.atkT=ANIM.commander; u.atkVar=Math.floor(Math.random()*3); u.pend=true; }
   if(INPUT.cry){ INPUT.cry=false; if(u.cryCd<=0) warCry(u); }
 }
 
+/* The blow lands partway through the swing; the target may have died or stepped away meanwhile */
+function resolveBlow(u){
+  const t = u.pend; u.pend = null;
+  if(t === true){ commanderStrike(u, true); return; }
+  if(!t || !t.alive || S.winner>=0) return;
+  const d = Math.hypot(t.x-u.x, t.y-u.y) || .001, U = UNITS[u.type];
+  if(U.range > 40 || d-u.r-t.r <= U.range+8) attack(u, t, d);
+}
 function attack(u, t, d){
   const U = UNITS[u.type];
   let dmg = U.dmg*(.85+Math.random()*.3)*(u.buffT>0?1.5:1);
@@ -483,7 +502,8 @@ function attack(u, t, d){
       commanderStrike(u,false); break;
     case 'archer':
       S.proj.push({ k:'arrow', x0:u.x+Math.sin(u.heading)*4, y0:u.y+Math.cos(u.heading)*4, h0:10.6,
-        tgt:t, tx:t.x, ty:t.y, th:HIT_H[t.type], t:0, dur:Math.max(.25,d/230), arc:Math.max(.25,d/230)*55, dmg, team:u.team });
+        tgt:t, tx:t.x, ty:t.y, th:HIT_H[t.type], t:0, dur:Math.max(.22,d/260), arc:Math.max(.22,d/260)*30, dmg, team:u.team });
+      u.shotAt = S.btime;
       sfx('bow'); break;
     case 'tank': {
       const mx=u.x+Math.sin(u.aim)*17, my=u.y+Math.cos(u.aim)*17, dur=Math.max(.3,d/240);
@@ -543,10 +563,12 @@ function step(dt){
   const fighting = S.winner<0;
   const ctl = controlled();
   for(const u of S.units){
-    if(!u.alive){ if(u.dieT<1) u.dieT+=dt; continue; }
+    if(!u.alive){ if(u.dieT<2) u.dieT+=dt; continue; }
     const U = UNITS[u.type];
     u.cd-=dt; u.retarget-=dt; if(u.atkT>0) u.atkT=Math.max(0,u.atkT-dt);
     if(u.buffT>0) u.buffT-=dt;
+    if(u.hitT>0) u.hitT-=dt;
+    if(u.pend && ANIM[u.type]-u.atkT >= ANIM[u.type]*IMPACT[u.type]) resolveBlow(u);
     if(u.cryCd>0) u.cryCd-=dt;
     if(!fighting){ u.moving=false; continue; }
     if(u===ctl){ controlStep(u,dt); continue; }
@@ -563,7 +585,10 @@ function step(dt){
       u.moving=true; u.phase+=dt*Math.min(U.speed,30)*.33;
     } else {
       u.moving=false;
-      if(u.cd<=0){ attack(u,t,d); u.cd=U.cd*(.85+Math.random()*.3); u.atkT=ANIM[u.type]; }
+      if(u.cd<=0){
+        u.cd=U.cd*(.85+Math.random()*.3); u.atkT=ANIM[u.type]; u.atkVar=Math.floor(Math.random()*3);
+        if(IMPACT[u.type]>0) u.pend=t; else attack(u,t,d);
+      }
     }
   }
   separate();
@@ -814,9 +839,15 @@ function drawUnit3D(u, sink){
 }
 
 /* ---------- World building ---------- */
+/* Paint on a throwaway canvas, then keep only the pixels: the browser may wipe idle canvases under memory pressure */
 function canvasTex(size, paint){
-  const c=document.createElement('canvas'); c.width=c.height=size; paint(c.getContext('2d'), size);
-  const t=new THREE.CanvasTexture(c); t.wrapS=t.wrapT=THREE.RepeatWrapping;
+  const c=document.createElement('canvas'); c.width=c.height=size;
+  const x=c.getContext('2d',{willReadFrequently:true}); paint(x, size);
+  const px=new Uint8Array(x.getImageData(0,0,size,size).data.buffer.slice(0));
+  c.width=c.height=0;
+  const t=new THREE.DataTexture(px, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+  t.wrapS=t.wrapT=THREE.RepeatWrapping; t.magFilter=THREE.LinearFilter; t.minFilter=THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps=true; t.needsUpdate=true;
   t.anisotropy = renderer.capabilities.getMaxAnisotropy(); return t;
 }
 const G1=0x4b7a28, G2=0x7ba446, D1=0xa48553, D2=0xd0b886, RK=0x8b8a7d;
@@ -1147,7 +1178,7 @@ function projPos(p,k,out){
 let hover=-1;
 function renderScene(){
   for(const k in POOLS) POOLS[k].begin();
-  if(S.winner>=0) for(const u of S.teams[S.winner]) u.jump=Math.abs(Math.sin(S.time*7+u.phase))*3;
+  if(S.winner>=0 && !MODEL.ready) for(const u of S.teams[S.winner]) u.jump=Math.abs(Math.sin(S.time*7+u.phase))*3;
   if(MODEL.ready) renderModelUnits();
   else for(const u of S.units) drawUnit3D(u, POOL_SINK);
 

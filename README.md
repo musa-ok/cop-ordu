@@ -4,4 +4,4 @@
 
 Oyna: https://musa-ok.github.io/cop-ordu/
 
-Şövalye, at ve tank modelleri: [Quaternius](https://quaternius.com) (CC0). Ayrıntılar: [models/CREDITS.md](models/CREDITS.md)
+Karakterler: [KayKit Adventurers](https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0) (Kay Lousberg, CC0). At ve tank: [Quaternius](https://quaternius.com) (CC0). Ayrıntılar: [models/CREDITS.md](models/CREDITS.md)
