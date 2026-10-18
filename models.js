@@ -8,7 +8,8 @@ const MODEL_FILES = {
   knight:'models/kk_knight.glb', rogue:'models/kk_rogue.glb', barbarian:'models/kk_barbarian.glb',
   horse:'models/horse.glb', tank:'models/tank.glb',
 };
-const MODEL_CAPS = { soldier:1600, archer:1100, rider:550, horse:550, giant:200, commander:4, tankBody:200, tankTurret:200 };
+const MODEL_CAPS = { soldier:1600, archer:1100, rider:550, horse:550, giant:200, commander:4, tankBody:200, tankTurret:200, tankGun:200 };
+const TANK_H = 21;                    // a tank stands well above a soldier (15)
 const RIDER_OFFSET = [0, 6.4, 1.6];
 const LOD_DIST = 260;                 // beyond this distance from the camera, units use the simplified mesh
 const HIT_DUR = .35, RELOAD_DUR = .7;
@@ -26,8 +27,8 @@ function modelSpecs(){
   const green = (h,s,l) => h > .25 && h < .55 && s > .35 && l > .12 && l < .8 ? 1 : steel(s,l);
   const blue = (h,s,l) => h > .52 && h < .7 && s > .2 && l > .15 && l < .8 ? 1 : steel(s,l);
   const melee = (idle, run, attacks, hit) => {
-    const a = { idle:loop(idle, 6), run:loop(run, 12), hit:once(hit, 5), death0:once('Death_A', 10), death1:once('Death_B', 10), cheer:loop('Cheer', 10) };
-    attacks.forEach((c, i) => a['atk'+i] = once(c, 9));
+    const a = { idle:loop(idle, 8), run:loop(run, 16), hit:once(hit, 6), death0:once('Death_A', 14), death1:once('Death_B', 14), cheer:loop('Cheer', 12) };
+    attacks.forEach((c, i) => a['atk'+i] = once(c, 12));
     return a;
   };
   const knightAnims = melee('Idle', 'Running_A', ['1H_Melee_Attack_Chop','1H_Melee_Attack_Slice_Diagonal','1H_Melee_Attack_Stab'], 'Hit_A');
@@ -41,18 +42,18 @@ function modelSpecs(){
     soldier:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, lods:[hideWith(LOD0,'^Badge_Shield'), hideWith(LOD1,'^Badge_Shield')], anims:knightAnims },
     commander:{ rig:'knight', height:21.5, measure:[{clip:'Idle', t:0}], accent:red, lods:[hideWith(LOD0,'^Round_Shield')], anims:knightAnims },
     archer:{ rig:'rogue', height:15, measure:[{clip:'Idle', t:0}], accent:green, lods:[LOD0, LOD1],
-      anims:{ idle:loop('Idle',6), run:loop('Running_A',12), aim:{ frames:1, layers:[{clip:'2H_Ranged_Aiming', at:.5}] },
-              shoot:once('2H_Ranged_Shoot',7), reload:once('2H_Ranged_Reload',10), hit:once('Hit_A',5),
-              death0:once('Death_A',10), death1:once('Death_B',10), cheer:loop('Cheer',10) } },
+      anims:{ idle:loop('Idle',8), run:loop('Running_A',16), aim:{ frames:1, layers:[{clip:'2H_Ranged_Aiming', at:.5}] },
+              shoot:once('2H_Ranged_Shoot',9), reload:once('2H_Ranged_Reload',12), hit:once('Hit_A',6),
+              death0:once('Death_A',14), death1:once('Death_B',14), cheer:loop('Cheer',12) } },
     giant:{ rig:'barbarian', height:36, measure:[{clip:'2H_Melee_Idle', t:0}], accent:blue, lods:[LOD0, LOD1],
       anims:Object.assign(melee('2H_Melee_Idle', 'Walking_A', ['2H_Melee_Attack_Chop','2H_Melee_Attack_Slice','2H_Melee_Attack_Spin'], 'Hit_B'),
-                          { atk0:once('2H_Melee_Attack_Chop',10), atk1:once('2H_Melee_Attack_Slice',10), atk2:once('2H_Melee_Attack_Spin',10) }) },
+                          { atk0:once('2H_Melee_Attack_Chop',13), atk1:once('2H_Melee_Attack_Slice',13), atk2:once('2H_Melee_Attack_Spin',13) }) },
     rider:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, poseFn:seat, lods:[hideWith(LOD0,'^Badge_Shield'), hideWith(LOD1,'^Badge_Shield')],
       anims:{ ride:{ frames:1, layers:[{clip:'Sit_Chair_Idle', at:0}] },
-              atk0:{ frames:9, layers:[{clip:'Sit_Chair_Idle', part:'lower', at:0},{clip:'1H_Melee_Attack_Slice_Horizontal', part:'upper'}] },
-              death0:once('Death_A',10) } },
+              atk0:{ frames:12, layers:[{clip:'Sit_Chair_Idle', part:'lower', at:0},{clip:'1H_Melee_Attack_Slice_Horizontal', part:'upper'}] },
+              death0:once('Death_A',14) } },
     horse:{ rig:'horse', height:18, measure:[{clip:'Idle', t:0}], lods:[null],
-      anims:{ idle:{ frames:1, layers:[{clip:'Idle', at:0}] }, run:loop('Gallop',10), death0:once('Death',10) } },
+      anims:{ idle:{ frames:1, layers:[{clip:'Idle', at:0}] }, run:loop('Gallop',12), death0:once('Death',12) } },
   };
 }
 
@@ -126,19 +127,26 @@ async function loadModels(onProgress){
     onProgress(.45 + .5*(j+1)/(jobs.length+1));
     await tick();
   }
-  // tank: body and turret baked separately so the turret can swivel; the gun decides which way is front
+  // tank: hull (with rolling tracks), turret and gun baked separately so the turret swivels and the gun recoils
   let gunX = 0; A.tank.scene.updateMatrixWorld(true);
   A.tank.scene.traverse(o => { if(o.isMesh && /Gun/.test(o.name)){ const b=new THREE.Box3().setFromObject(o); gunX=b.getCenter(new THREE.Vector3()).x; } });
   const rotY = gunX >= 0 ? -Math.PI/2 : Math.PI/2;
-  const tankSpec = hide => ({ rig:'tank', height:12, measure:[], rotY, hide, measureHide:null,
-    tint:{ Main:{color:0xdfe4ea, mask:.9}, Main_Light:{color:0xf2f4f7, mask:.9}, Main_Dark:{color:0xb4bac3, mask:.8} }, anims:{ idle:{ frames:1, layers:[] } } });
-  baked.tankBody = [BAKE.bake(rigs.tank, tankSpec(/Turret|Gun/))];
-  baked.tankTurret = [BAKE.bake(rigs.tank, tankSpec(/body|Track/i))];
-  const core = BAKE.bake(rigs.tank, tankSpec(/body|Track|Gun/i)).idle[0];
-  core.computeBoundingBox();
-  const c = core.boundingBox.getCenter(new THREE.Vector3());
+  const tankSpec = (hide, anims) => ({ rig:'tank', height:TANK_H, measure:[], rotY, hide, measureHide:null,
+    tint:{ Main:{color:0xdfe4ea, mask:.9}, Main_Light:{color:0xf2f4f7, mask:.9}, Main_Dark:{color:0xb4bac3, mask:.8} },
+    anims: anims || { idle:{ frames:1, layers:[] } } });
+  baked.tankBody = [BAKE.bake(rigs.tank, tankSpec(/Turret|Gun/, {
+    idle:{ frames:1, layers:[{ clip:'Tank_Forward', at:0 }] },
+    run:{ frames:10, loop:true, layers:[{ clip:'Tank_Forward' }] } }))];
+  baked.tankTurret = [BAKE.bake(rigs.tank, tankSpec(/body|Track|Gun/i))];
+  baked.tankGun = [BAKE.bake(rigs.tank, tankSpec(/body|Track|Turret/i))];
+  const tg = baked.tankTurret[0].idle[0], gg = baked.tankGun[0].idle[0];
+  tg.computeBoundingBox();
+  const c = tg.boundingBox.getCenter(new THREE.Vector3());
   MODEL.pivot = new THREE.Vector3(c.x, 0, c.z);
-  baked.tankTurret[0].idle[0].translate(-c.x, 0, -c.z);
+  // shift positions only: geometry.translate() would also rewrite (and, being 16-bit, flatten) the normals
+  for(const g of [tg, gg]){ const a = g.attributes.position.array; for(let i=0;i<a.length;i+=3){ a[i]-=c.x; a[i+2]-=c.z; } g.computeBoundingBox(); g.computeBoundingSphere(); }
+  // where shells leave the barrel, relative to the turret pivot
+  MODEL.muzzle = { fwd: gg.boundingBox.max.z, h: (gg.boundingBox.min.y + gg.boundingBox.max.y)/2 };
 
   for(const [k, lods] of Object.entries(baked)){
     const big = k==='giant' || k==='commander' || k.startsWith('tank');
@@ -155,7 +163,7 @@ async function loadModels(onProgress){
 }
 
 /* ---------- per-frame drawing ---------- */
-const _MM = { m:new THREE.Matrix4(), t:new THREE.Matrix4(), r:new THREE.Matrix4(), q:new THREE.Quaternion(), p:new THREE.Vector3(), s:new THREE.Vector3(1,1,1), y:new THREE.Vector3(0,1,0) };
+const _MM = { e:new THREE.Euler(), m:new THREE.Matrix4(), t:new THREE.Matrix4(), r:new THREE.Matrix4(), q:new THREE.Quaternion(), p:new THREE.Vector3(), s:new THREE.Vector3(1,1,1), y:new THREE.Vector3(0,1,0) };
 function addInst(slot, matrix, color){
   if(!slot) return;
   if(slot.n >= slot.cap) slotMesh(slot, slot.n + 1 + (slot.n >> 1));   // grows, keeping what was written this frame
@@ -178,7 +186,7 @@ function pickFrame(V, u, type){
   if(u.moving && V.run) return loopAt(V.run, u.phase/TAU);
   return loopAt(V.idle, S.time*.45 + u.phase*.16);
 }
-const _cam = new THREE.Vector3();
+const _cam = new THREE.Vector3(), BURNT = new THREE.Color(0x2b2826);   // a burnt-out hull
 function renderModelUnits(){
   for(const m of MODEL.meshes) m.n = 0;
   const M = _MM, lodD2 = LOD_DIST*LOD_DIST;
@@ -200,11 +208,20 @@ function renderModelUnits(){
         addInst(frameAt(R.death0, u.dieT/1.1), M.r, col);
       }
     } else if(u.type==='tank'){
-      addInst(variant('tankBody').idle[0], M.m, col);
+      // hull rocks back when the gun fires and rides the terrain while driving; tracks roll with distance travelled
+      const kick = u.atkT>0 ? Math.pow(u.atkT/ANIM.tank, 2) : 0;
+      const drive = u.alive && u.moving;
+      M.e.set(-kick*.06 + (drive ? Math.sin(u.phase*1.7)*.012 : 0), u.heading, drive ? Math.sin(u.phase*1.1)*.01 : 0, 'YXZ');
+      M.q.setFromEuler(M.e); M.p.set(X, drive ? Math.abs(Math.sin(u.phase*2.3))*.25 : 0, Z); M.m.compose(M.p, M.q, M.s);
+      const B = variant('tankBody'), tc = u.alive ? col : BURNT;
+      addInst(drive ? loopAt(B.run, u.phase/TAU) : B.idle[0], M.m, tc);
       M.t.makeTranslation(MODEL.pivot.x, 0, MODEL.pivot.z); M.r.multiplyMatrices(M.m, M.t);
-      M.q.setFromAxisAngle(M.y, u.aim-u.heading + (u.alive?0:.3)); M.t.makeRotationFromQuaternion(M.q);
+      if(u.alive){ M.q.setFromAxisAngle(M.y, u.aim-u.heading); M.t.makeRotationFromQuaternion(M.q); }
+      else { M.e.set(.32, u.aim-u.heading+.5, .38, 'YXZ'); M.q.setFromEuler(M.e); M.t.compose(M.p.set(2, 3.5, -2), M.q, M.s); }
       M.r.multiply(M.t);
-      addInst(variant('tankTurret').idle[0], M.r, col);
+      addInst(variant('tankTurret').idle[0], M.r, tc);
+      M.t.makeTranslation(0, 0, -kick*3.4); M.r.multiply(M.t);          // barrel recoil
+      addInst(variant('tankGun').idle[0], M.r, tc);
     } else if(MODEL.V[u.type]){
       addInst(pickFrame(variant(u.type), u, u.type), M.m, col);
     }
@@ -235,7 +252,7 @@ function makeModelIcons(){
       archer:[[V('archer').aim[0],-5,0],[V('archer').aim[0],5,3]],
       cavalry:[[V('horse').idle[0],0,0],[V('rider').ride[0],RIDER_OFFSET[0],RIDER_OFFSET[2],RIDER_OFFSET[1]]],
       giant:[[V('giant').idle[0],0,0]],
-      tank:[[V('tankBody').idle[0],0,0],[V('tankTurret').idle[0],MODEL.pivot.x,MODEL.pivot.z]],
+      tank:[[V('tankBody').idle[0],0,0],[V('tankTurret').idle[0],MODEL.pivot.x,MODEL.pivot.z],[V('tankGun').idle[0],MODEL.pivot.x,MODEL.pivot.z]],
     };
     for(const t of ORDER){
       const g = new THREE.Group(), made = [];
