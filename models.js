@@ -14,49 +14,37 @@ const TANK_H = 21;                    // a tank stands well above a soldier (15)
 const RIDER_OFFSET = [0, 6.4, 1.6];
 const LOD_DIST = 260;                 // beyond this distance from the camera, units use the simplified mesh
 const HIT_DUR = .35, RELOAD_DUR = .7;
+const CROWN_POS = [0, .82, .02], CROWN_SCALE = .78;           // on the knight's (large) head
 
 const LOD0 = /_LOD$/, LOD1 = /^(?!.*_LOD$)/;
 const hideWith = (lodRe, extra) => extra ? new RegExp(lodRe.source + '|' + extra) : lodRe;
 
-/* ---------- stick figures ---------- */
-const BODY_MESHES = '^(Knight|Rogue|Barbarian)_(Arm|Body|Head|Leg)|Knight_Helmet|Barbarian_Hat|Rogue_Cape|Barbarian_Cape';
-/* limb thickness k, head size h; LOD1 uses fewer sides and joints */
-function stickBody(k, h, lite, rock){
-  if(rock) return golemBody(lite);
-  const L = (a, b, r) => [a, b, r*k];
-  const segs = [
-    L('hips','chest',.08), L('chest','head',.055),
-    L('chest','upperarml',.045), L('upperarml','lowerarml',.045), L('lowerarml','wristl',.042), L('wristl','handl',.04),
-    L('chest','upperarmr',.045), L('upperarmr','lowerarmr',.045), L('lowerarmr','wristr',.042), L('wristr','handr',.04),
-    L('hips','upperlegl',.055), L('upperlegl','lowerlegl',.052), L('lowerlegl','footl',.048), L('footl','toesl',.044),
-    L('hips','upperlegr',.055), L('upperlegr','lowerlegr',.052), L('lowerlegr','footr',.048), L('footr','toesr',.044) ];
-  const B = (bone, r, o) => [bone, r*(o && o.abs ? 1 : k), o];
-  const balls = lite ? [B('head', h, { up:.32, abs:1 }), B('handl',.068), B('handr',.068)] :
-    [B('chest',.08), B('hips',.08), B('upperarml',.045), B('lowerarml',.045), B('handl',.068), B('upperarmr',.045), B('lowerarmr',.045), B('handr',.068),
-     B('upperlegl',.055), B('lowerlegl',.052), B('footl',.048), B('toesl',.044), B('upperlegr',.055), B('lowerlegr',.052), B('footr',.048), B('toesr',.044),
-     B('head', h, { up:.32, hi:1, abs:1 })];
-  return { ref:['hips','head'], uv:[.5,.755], mask:1, radial: lite ? 5 : 10, segs, balls };
-}
-/* the golem: a heap of boulders strung on the same skeleton — bulky torso, huge fists, small head */
+/* ---------- the golem: boulders strung on the barbarian's skeleton, with glowing crystals ---------- */
 function golemBody(lite){
-  const R = (a, b, r) => [a, b, r, 'rock'];
+  const STONE_A = [.56,.32], STONE_B = [.56,.06], GLOW = [.5,.755];          // palette texels: pale stone, dark stone, white (takes team colour)
+  const R = (a, b, r, dark) => [a, b, r, 'rock', { uv: dark ? STONE_B : STONE_A }];
   const segs = [
-    R('hips','chest',.24), R('chest','head',.1),
-    R('chest','upperarml',.12), R('upperarml','lowerarml',.15), R('lowerarml','handl',.17),
-    R('chest','upperarmr',.12), R('upperarmr','lowerarmr',.15), R('lowerarmr','handr',.17),
-    R('hips','upperlegl',.13), R('upperlegl','lowerlegl',.16), R('lowerlegl','footl',.14), R('footl','toesl',.11),
-    R('hips','upperlegr',.13), R('upperlegr','lowerlegr',.16), R('lowerlegr','footr',.14), R('footr','toesr',.11) ];
-  const balls = [['head', .17, { up:.1, rock:1 }], ['handl', .2, { rock:1 }], ['handr', .2, { rock:1 }], ['chest', .26, { rock:1 }],
-                 ...(lite ? [] : [['upperarml', .15, { rock:1 }], ['upperarmr', .15, { rock:1 }], ['hips', .2, { rock:1 }]])];
-  return { ref:['hips','head'], uv:[.56,.32], mask:.22, radial:6, segs, balls };
+    R('hips','chest',.24), R('chest','head',.1, 1),
+    R('chest','upperarml',.12, 1), R('upperarml','lowerarml',.15), R('lowerarml','handl',.17, 1),
+    R('chest','upperarmr',.12, 1), R('upperarmr','lowerarmr',.15), R('lowerarmr','handr',.17, 1),
+    R('hips','upperlegl',.13, 1), R('upperlegl','lowerlegl',.16), R('lowerlegl','footl',.14, 1), R('footl','toesl',.11),
+    R('hips','upperlegr',.13, 1), R('upperlegr','lowerlegr',.16), R('lowerlegr','footr',.14, 1), R('footr','toesr',.11) ];
+  const stone = (bone, r, o) => [bone, r, Object.assign({ rock:1, uv:STONE_A }, o)];
+  const balls = [
+    stone('head', .17, { up:.1 }), stone('handl', .2, { uv:STONE_B }), stone('handr', .2, { uv:STONE_B }), stone('chest', .26),
+    ['head', .035, { up:.13, fwd:.15, side:-.06, gem:1, uv:GLOW, mask:1 }], ['head', .035, { up:.13, fwd:.15, side:.06, gem:1, uv:GLOW, mask:1 }],
+    ['chest', .09, { up:.05, fwd:.22, gem:1, sy:1.5, uv:GLOW, mask:1 }],
+    ...(lite ? [] : [stone('upperarml', .15, { uv:STONE_B }), stone('upperarmr', .15, { uv:STONE_B }), stone('hips', .2),
+                     ['upperarml', .05, { up:.05, fwd:.08, gem:1, uv:GLOW, mask:1 }], ['upperarmr', .05, { up:.05, fwd:.08, gem:1, uv:GLOW, mask:1 }]])];
+  return { ref:['hips','head'], uv:STONE_A, mask:.18, radial:6, segs, balls };
 }
 
 function modelSpecs(){
   const aim = BAKE.aim;
   const loop = (clip, frames) => ({ frames, loop:true, layers:[{ clip }] });
   const once = (clip, frames, span) => ({ frames, layers:[{ clip, span }] });
-  // props keep their own colours; the accent colour of their texture takes the team colour
-  const steel = (s,l) => s < .14 && l > .28 && l < .78 ? .3 : 0;
+  // team colour per texel: each character's accent colour fully (capes, trims), plain steel partly
+  const steel = (s,l) => s < .14 && l > .28 && l < .78 ? .36 : 0;
   const red = (h,s,l) => (h < .03 || h > .9) && s > .45 && l > .18 && l < .78 ? 1 : steel(s,l);
   const green = (h,s,l) => h > .25 && h < .55 && s > .35 && l > .12 && l < .8 ? 1 : steel(s,l);
   const blue = (h,s,l) => h > .52 && h < .7 && s > .2 && l > .15 && l < .8 ? 1 : steel(s,l);
@@ -72,50 +60,51 @@ function modelSpecs(){
     spin:loop('2H_Melee_Attack_Spinning', 10), leap:once('Jump_Full_Short', 16), cry:once('Cheer', 10, .7) });
   const SHIELD_NODES = { round:'Round_Shield', badge:'Badge_Shield', rect:'Rectangle_Shield', spike:'Spike_Shield' };
   const others = keep => Object.values(SHIELD_NODES).filter(n => n !== keep).map(n => '^' + n).join('|');
-  // two detail levels: LOD0 hides the simplified copies, LOD1 hides the detailed props
-  const lods = (extra, k, h, rock) => [
-    { hide:hideWith(LOD0, BODY_MESHES + (extra ? '|' + extra : '')), stick:stickBody(k, h, false, rock) },
-    { hide:hideWith(LOD1, BODY_MESHES + (extra ? '|' + extra : '')), stick:stickBody(k, h, true, rock) } ];
+  const lods = extra => extra ? [hideWith(LOD0, extra), hideWith(LOD1, extra)] : [LOD0, LOD1];
   const seat = (b, key) => {
     if(key!=='ride' && key!=='atk0') return;
     aim(b.upperlegl,  .55, -.25, 1); aim(b.lowerlegl,  .3, -1, .05);
     aim(b.upperlegr, -.55, -.25, 1); aim(b.lowerlegr, -.3, -1, .05);
   };
   return {
-    soldier:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, propScale:.62, lods:lods(others('Round_Shield') + '|Knight_Cape', 1, .27), anims:knightAnims },
-    archer:{ rig:'rogue', height:15, measure:[{clip:'Idle', t:0}], accent:green, propScale:.7, lods:lods('1H_Crossbow|Knife|Throwable', .95, .27),
+    // footman: helmeted knight with sword, round shield and a cape in the team colour
+    soldier:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, lods:lods(others('Round_Shield')).map(hide => ({ hide })), anims:knightAnims },
+    // crossbowman: hooded rogue with a cloak
+    archer:{ rig:'rogue', height:15, measure:[{clip:'Idle', t:0}], accent:green, lods:lods().map(hide => ({ hide })),
       anims:{ idle:loop('Idle',8), run:loop('Running_A',16), aim:{ frames:1, layers:[{clip:'2H_Ranged_Aiming', at:.5}] },
               shoot:once('2H_Ranged_Shoot',9), reload:once('2H_Ranged_Reload',12), hit:once('Hit_A',6),
               death0:once('Death_A',14), death1:once('Death_B',14), cheer:loop('Cheer',12) } },
-    giant:{ rig:'barbarian', height:36, measure:[{clip:'2H_Melee_Idle', t:0}], accent:blue, propScale:.8, lods:lods('1H_Axe|Barbarian_Round_Shield|Mug', 1.7, .3),
+    // giant: towering barbarian in a bear-skin hat with a two-handed axe
+    giant:{ rig:'barbarian', height:36, measure:[{clip:'2H_Melee_Idle', t:0}], accent:blue, lods:lods('Unarmed').map(hide => ({ hide })),
       anims:Object.assign(melee('2H_Melee_Idle', 'Walking_A', ['2H_Melee_Attack_Chop','2H_Melee_Attack_Slice','2H_Melee_Attack_Spin'], 'Hit_B'),
                           { atk0:once('2H_Melee_Attack_Chop',13), atk1:once('2H_Melee_Attack_Slice',13), atk2:once('2H_Melee_Attack_Spin',13) }) },
-    golem:{ rig:'barbarian', height:40, measure:[{clip:'Unarmed_Idle', t:0}], accent:blue, lods:lods('1H_Axe|2H_Axe|Barbarian_Round_Shield|Mug', 3.2, .36, true),
+    golem:{ rig:'barbarian', height:40, measure:[{clip:'Unarmed_Idle', t:0}], accent:blue,
+      lods:[0,1].map(li => ({ hide:hideWith(li ? LOD1 : LOD0, '^Barbarian_|2H_Axe'), stick:golemBody(!!li) })),
       anims:{ idle:loop('Unarmed_Idle',8), run:loop('Walking_C',16), hit:once('Hit_B',6),
               atk0:once('Unarmed_Melee_Attack_Punch_A',13), atk1:once('Unarmed_Melee_Attack_Punch_B',13), atk2:once('Unarmed_Melee_Attack_Kick',12),
               death0:once('Death_A',14), death1:once('Death_B',14), cheer:loop('Cheer',12) } },
-    rider:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, propScale:.62, poseFn:seat, lods:lods(others('Round_Shield') + '|Knight_Cape', 1, .27),
+    rider:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, poseFn:seat, lods:lods(others('Round_Shield')).map(hide => ({ hide })),
       anims:{ ride:{ frames:1, layers:[{clip:'Sit_Chair_Idle', at:0}] },
               atk0:{ frames:12, layers:[{clip:'Sit_Chair_Idle', part:'lower', at:0},{clip:'1H_Melee_Attack_Slice_Horizontal', part:'upper'}] },
               death0:once('Death_A',14) } },
-    // your commander follows your choices (shield, crown); a heavier stick figure with a cape
+    // your commander: larger knight with the shield and headgear you picked
     commanderFor:(look, li) => {
-      const keep = SHIELD_NODES[look.shield] || 'Badge_Shield', lod = li ? LOD1 : LOD0;
-      return { rig:'knight', height:21.5, measure:[{clip:'Idle', t:0}], accent:red, propScale:.7,
-        hide:hideWith(lod, BODY_MESHES + '|' + others(keep)), measureHide:hideWith(lod, BODY_MESHES + '|' + others('Badge_Shield')),
-        stick:stickBody(1.3, .29, !!li), attach: look.crown === false ? [] : [CROWN], anims:commanderAnims };
+      const lod = li ? LOD1 : LOD0, keep = SHIELD_NODES[look.shield] || 'Badge_Shield', head = look.head || 'helmet';
+      return { rig:'knight', height:21.5, measure:[{clip:'Idle', t:0}], accent:red,
+        hide:hideWith(lod, others(keep) + (head !== 'helmet' ? '|^Knight_Helmet' : '')),
+        measureHide:hideWith(lod, others('Badge_Shield')), attach: head === 'crown' ? [CROWN] : [], anims:commanderAnims };
     },
     horse:{ rig:'horse', height:18, measure:[{clip:'Idle', t:0}], lods:[{}],
       anims:{ idle:{ frames:1, layers:[{clip:'Idle', at:0}] }, run:loop('Gallop',12), death0:once('Death',12) } },
   };
 }
-/* a small gold crown resting on the stick head */
+/* a gold crown with a ruby, resting on the knight's head */
 const CROWN = (() => {
-  const band = new THREE.CylinderGeometry(.62, .55, .28, 12, 1, true); band.translate(0, 0, 0);
-  const pts = []; for(let i=0;i<6;i++){ const g = new THREE.ConeGeometry(.12, .3, 4); const a = i/6*Math.PI*2; g.translate(Math.sin(a)*.58, .28, Math.cos(a)*.58); pts.push(g); }
-  const gem = new THREE.OctahedronGeometry(.11); gem.translate(0, .02, .6);
+  const band = new THREE.CylinderGeometry(.62, .55, .28, 14, 1, true);
+  const pts = []; for(let i=0;i<7;i++){ const g = new THREE.ConeGeometry(.12, .32, 4); const a = i/7*Math.PI*2; g.translate(Math.sin(a)*.58, .29, Math.cos(a)*.58); pts.push(g); }
+  const gem = new THREE.OctahedronGeometry(.12); gem.translate(0, .02, .6);
   const gold = [.56, .3], ruby = [.06, .33];   // texels of the knight palette
-  return { bone:'head', pos:[0, .47, 0], scale:.42, parts:[{ g:band, color:new THREE.Color(0xe8b53a), name:'gold', uv:gold }, ...pts.map(g => ({ g, color:new THREE.Color(0xf2c64a), name:'gold', uv:gold })), { g:gem, color:new THREE.Color(0xd8263a), name:'gem', uv:ruby }] };
+  return { bone:'head', pos:CROWN_POS, scale:CROWN_SCALE, parts:[{ g:band, color:new THREE.Color(0xe8b53a), name:'gold', uv:gold }, ...pts.map(g => ({ g, color:new THREE.Color(0xf2c64a), name:'gold', uv:gold })), { g:gem, color:new THREE.Color(0xd8263a), name:'gem', uv:ruby }] };
 })();
 
 /* ---------- materials: the team colour (per instance) only paints masked vertices ---------- */
@@ -220,7 +209,7 @@ async function loadModels(onProgress){
   }
   // commanders: yours follows your chosen look; the enemy's keeps the default (and the lighter mesh)
   bakeCommander('commander', commanderLook(), 0);
-  bakeCommander('commanderFoe', { shield:'badge', crown:true }, 1);
+  bakeCommander('commanderFoe', { shield:'badge', head:'helmet' }, 1);
   buildConstructs();
   MODEL.team = [new THREE.Color(0x3f74ee), new THREE.Color(0xb3261b)];
   MODEL.dead = MODEL.team.map(c => c.clone().multiplyScalar(.5));
@@ -334,6 +323,10 @@ function renderModelUnits(){
       if(!u.alive) a = .4;
       M.e.set(a, 0, 0, 'XYZ'); M.q.setFromEuler(M.e); M.p.set(0, 15.5, 1); M.t.compose(M.p, M.q, M.s);
       M.r.multiplyMatrices(M.m, M.t); addInst(B.catArm, M.r, c);
+      if(u.alive){   // a knight works the winch beside it
+        M.t.makeTranslation(-14, 0, -6); M.r.multiplyMatrices(M.m, M.t);
+        const sv = variant('soldier'); addInst(u.atkT>0 ? frameAt(sv.atk2, 1-u.atkT/ANIM.catapult) : loopAt(sv.idle, S.time*.45 + u.phase*.16), M.r, col);
+      }
     } else if(u.type==='balloon' || u.type==='dragon'){
       // flyers bob in the air; when shot down they tumble and fall
       const U = UNITS[u.type], fall = u.alive ? 0 : Math.min(1, u.dieT/.9);

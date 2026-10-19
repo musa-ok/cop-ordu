@@ -125,10 +125,11 @@ const BAKE = (() => {
     const U = P(st.ref[0]).distanceTo(P(st.ref[1]));            // radii are given relative to this body length
     const cyl = new THREE.CylinderGeometry(1, 1, 1, st.radial || 10, 1, true); cyl.translate(0, .5, 0);
     const ball = new THREE.SphereGeometry(1, 7, 5), head = new THREE.SphereGeometry(1, 14, 11);   // small joints stay cheap
-    const rock = new THREE.DodecahedronGeometry(1, 0);
+    const rock = new THREE.DodecahedronGeometry(1, 0), gem = new THREE.OctahedronGeometry(1, 0);
     const parts = [];
-    for(const [a, b, r, shape] of st.segs) parts.push({ type: shape==='rock' ? 'rock' : 'seg', a, b, r:r*U, g: shape==='rock' ? rock : cyl });
-    for(const [bone, r, o] of st.balls || []) parts.push({ type:'ball', bone, r:r*U, up:((o&&o.up)||0)*U, fwd:((o&&o.fwd)||0)*U, sy:(o&&o.sy)||1, g:(o&&o.rock) ? rock : (o&&o.hi) ? head : ball });
+    for(const [a, b, r, shape, o] of st.segs) parts.push({ type: shape==='rock' ? 'rock' : 'seg', a, b, r:r*U, g: shape==='rock' ? rock : cyl, uv:(o&&o.uv)||st.uv, mask:o&&o.mask!==undefined ? o.mask : st.mask });
+    for(const [bone, r, o] of st.balls || []) parts.push({ type:'ball', bone, r:r*U, up:((o&&o.up)||0)*U, fwd:((o&&o.fwd)||0)*U, side:((o&&o.side)||0)*U, sy:(o&&o.sy)||1,
+      g:(o&&o.gem) ? gem : (o&&o.rock) ? rock : (o&&o.hi) ? head : ball, uv:(o&&o.uv)||st.uv, mask:o&&o.mask!==undefined ? o.mask : st.mask });
     let n = 0; const idx = [];
     for(const p of parts){
       p.off = n; p.pos = flat(p.g.attributes.position); p.nor = flat(p.g.attributes.normal); p.cnt = p.g.attributes.position.count;
@@ -138,10 +139,11 @@ const BAKE = (() => {
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3));
-    const uv = new Float32Array(n*2); for(let i=0;i<n;i++){ uv[i*2] = st.uv[0]; uv[i*2+1] = st.uv[1]; }
+    const uv = new Float32Array(n*2), maskArr = new Float32Array(n);
+    for(const p of parts) for(let i=0;i<p.cnt;i++){ const k = p.off+i; uv[k*2] = p.uv[0]; uv[k*2+1] = p.uv[1]; maskArr[k] = p.mask === undefined ? 1 : p.mask; }
     geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
     geo.setIndex(idx);
-    const t = { parts, geo, n, mask: st.mask === undefined ? 1 : st.mask };
+    const t = { parts, geo, n, maskArr };
     stickCache.set(key, t); return t;
   }
   const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sz = new THREE.Vector3(), _sq = new THREE.Quaternion();
@@ -158,7 +160,7 @@ const BAKE = (() => {
       const P = p.pos, Q = p.nor;
       if(p.type === 'ball'){
         const b = rig.bones[p.bone]; b.getWorldPosition(_sa);
-        if(p.up || p.fwd){ b.getWorldQuaternion(_sq); _sa.add(_sb.set(0, p.up, p.fwd).applyQuaternion(_sq)); }
+        if(p.up || p.fwd || p.side){ b.getWorldQuaternion(_sq); _sa.add(_sb.set(p.side, p.up, p.fwd).applyQuaternion(_sq)); }
         for(let i=0;i<p.cnt;i++){
           const k = (base + p.off + i)*3;
           put(k, _sa.x + P[i*3]*p.r, _sa.y + P[i*3+1]*p.r*p.sy, _sa.z + P[i*3+2]*p.r, Q[i*3], Q[i*3+1], Q[i*3+2]);
@@ -197,7 +199,7 @@ const BAKE = (() => {
     for(const s of srcs){
       const g = s.geo, cnt = g.attributes.position.count, uva = flat(g.attributes.uv);
       let m = 0;
-      if(s.kind==='stick'){ c.setRGB(1,1,1); m = s.tpl.mask; }
+      if(s.kind==='stick'){ c.setRGB(1,1,1); m = 0; }
       else if(s.kind==='attach'){
         const t = s.att.tint && s.att.tint[s.part.name];
         c.copy(t && t.color!==undefined ? new THREE.Color(t.color) : s.part.color); m = t ? (t.mask||0) : 0;
@@ -214,7 +216,7 @@ const BAKE = (() => {
         col[k*3] = c.r; col[k*3+1] = c.g; col[k*3+2] = c.b;
         let mk = m;
         if(sample && uva && s.mat && s.mat.map){ const [r,gg,b] = sample(uv[k*2], uv[k*2+1]); const [h,sat,l] = hsl(r,gg,b); mk = +spec.accent(h,sat,l) || 0; }
-        mask[k] = mk;
+        mask[k] = s.kind==='stick' ? s.tpl.maskArr[i] : mk;
       }
       if(g.index){ const ix = g.index.array; for(let i=0;i<ix.length;i++) idx.push(base + ix[i]); }
       else for(let i=0;i<cnt;i++) idx.push(base + i);

@@ -290,7 +290,7 @@ button:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
         <div class="look-opts">
           <div class="opt-group"><span class="opt-l">Kalkan</span><div class="opt-row" id="optShield"></div><p class="opt-note" id="shieldNote"></p></div>
           <div class="opt-group"><span class="opt-l">Zırh</span><div class="opt-row" id="optArmor"></div></div>
-          <div class="opt-group"><span class="opt-l">Miğfer</span><div class="opt-row" id="optHelmet"></div></div>
+          <div class="opt-group"><span class="opt-l">Başlık</span><div class="opt-row" id="optHelmet"></div></div>
         </div>
       </div>
       <div class="skills-list">
@@ -326,10 +326,10 @@ button:focus-visible{outline:2.5px solid var(--blue);outline-offset:2px}
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
-<script src="bake.js?v=4"></script>
-<script src="models.js?v=4"></script>
-<script src="levels.js?v=4"></script>
-<script src="world.js?v=4"></script>
+<script src="bake.js?v=5"></script>
+<script src="models.js?v=5"></script>
+<script src="levels.js?v=5"></script>
+<script src="world.js?v=5"></script>
 <script>
 "use strict";
 /* ---------- Field geometry (simulation units; 1 unit = 1 world unit) ---------- */
@@ -399,7 +399,7 @@ const INPUT = { jx:0, jy:0, joy:false, keys:new Set(), atk:false, cry:false, blo
 /* the player's commander, when the player has taken control of it */
 function controlled(){ const c=S.cmd[0]; return (S.control && S.mode!=='plan' && c && c.alive) ? c : null; }
 let progress = { unlocked:1, stars:{}, current:1, look:null };
-const LOOK_DEFAULT = { shield:'badge', armor:'gold', helmet:true };
+const LOOK_DEFAULT = { shield:'badge', armor:'gold', head:'helmet' };
 function commanderLook(){ return Object.assign({}, LOOK_DEFAULT, progress.look || {}); }
 const STORE_KEY = 'cop-ordu-v1';
 function loadProgress(){ try{ const p=JSON.parse(localStorage.getItem(STORE_KEY)||'null'); if(p && p.unlocked) progress=Object.assign(progress,p); }catch(e){} }
@@ -728,6 +728,19 @@ function dragonBreath(u){
   for(let i=0;i<3;i++) addFx({ k:'fire', x:mx, y:my, h:U.flyH-4, r:8+Math.random()*6, t:0, dur:.6, vx:fx*95+(Math.random()-.5)*28, vz:fz*95+(Math.random()-.5)*28, vh:-62 });
   if(Math.random()<.3){ S.scorch.push({ x:mx+fx*44, y:my+fz*44, r:10+Math.random()*8, rot:Math.random()*TAU }); if(S.scorch.length>70) S.scorch.shift(); }
 }
+/* true when no unit can ever reach an enemy again: towers out of each other's range, or ground troops facing only flyers */
+function stalemate(){
+  for(const team of [0,1]) for(const u of S.teams[team]){
+    const U=UNITS[u.type];
+    for(const e of S.teams[1-team]){
+      if(!e.alive || !canHit(u,e)) continue;
+      if(!U.fixed) return false;                                         // it can walk there
+      if(Math.hypot(e.x-u.x,e.y-u.y)-e.r-u.r <= U.range) return false;     // a tower with something in range
+      if(!UNITS[e.type].fixed) return false;                               // the enemy may still come closer
+    }
+  }
+  return true;
+}
 function separate(){
   for(const b of buckets) b.length=0;
   for(const u of S.units){
@@ -866,7 +879,10 @@ function step(dt){
 
   if(fighting){
     const a=S.teams[0].length, b=S.teams[1].length;
-    if(a===0 || b===0 || S.btime>150){
+    S.stuckT=(S.stuckT||0)+dt;
+    let stuck=false;
+    if(S.stuckT>.5){ S.stuckT=0; stuck = a>0 && b>0 && stalemate(); if(stuck) toast('Kimse kimseye ulaşamıyor: savaş kalan güce göre bitti.'); }
+    if(a===0 || b===0 || stuck || S.btime>150){
       S.winner = (b===0 && a>0) ? 0 : (a===0 ? 1 : (teamValue(0)>teamValue(1)?0:1));
       S.endT = 2;
       sfx(S.winner===0?'win':'lose');
@@ -1556,7 +1572,7 @@ for(const ev of ['pointerup','pointercancel','lostpointercapture']) blkBtn.addEv
 const LOOK_OPTS = {
   shield:[['round','Yuvarlak'],['badge','Armalı'],['rect','Kule'],['spike','Dikenli']],
   armor:[['gold','Altın','#d9a520'],['steel','Çelik','#3f74ee'],['night','Gece','#30343f'],['royal','Kraliyet','#7a3fd0']],
-  helmet:[[true,'Takılı'],[false,'Çıkarılmış']],
+  head:[['helmet','Miğfer'],['crown','Taç'],['bare','Yok']],
 };
 function renderLookSheet(withPreview){
   const look=commanderLook();
@@ -1569,7 +1585,7 @@ function renderLookSheet(withPreview){
       el.appendChild(b);
     }
   };
-  row('optShield','shield'); row('optArmor','armor'); row('optHelmet','helmet');
+  row('optShield','shield'); row('optArmor','armor'); row('optHelmet','head');
   const sh=SHIELDS[look.shield]; $('shieldNote').textContent=`${sh.name}: ${sh.note}`;
   if(withPreview!==false && MODEL.ready){ const url=makeCommanderPreview(); if(url) $('lookImg').src=url; }
 }
@@ -1577,7 +1593,7 @@ function setLook(patch){
   const before=commanderLook();
   progress.look=Object.assign(before, patch); saveProgress();
   if(MODEL.ready){
-    if('shield' in patch || 'helmet' in patch) bakeCommander('commander', commanderLook(), 0);
+    if('shield' in patch || 'head' in patch) bakeCommander('commander', commanderLook(), 0);
     MODEL.cmdColor=commanderColor(); MODEL.cmdDead=MODEL.cmdColor.clone().multiplyScalar(.5);
   }
   if(S.cmd[0]) S.cmd[0].shield=commanderLook().shield;
