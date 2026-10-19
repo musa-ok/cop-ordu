@@ -4,11 +4,12 @@
    and a simplified (LOD1) version so a whole army costs a few dozen draw calls. */
 "use strict";
 const MODEL = { ready:false, failed:false, V:{}, meshes:[], pivot:null, team:null, dead:null };
-const MODEL_FILES = {
+const MODEL_VER = 3;                  // bump when a model file changes, so browsers fetch the new one
+const MODEL_FILES = Object.fromEntries(Object.entries({
   knight:'models/kk_knight.glb', rogue:'models/kk_rogue.glb', barbarian:'models/kk_barbarian.glb',
   horse:'models/horse.glb', tank:'models/tank.glb',
-};
-const MODEL_CAPS = { soldier:1600, archer:1100, rider:550, horse:550, giant:200, commander:4, tankBody:200, tankTurret:200, tankGun:200 };
+}).map(([k, v]) => [k, v + '?v=' + MODEL_VER]));
+const MODEL_CAPS = { golem:200, soldier:1600, archer:1100, rider:550, horse:550, giant:200, commander:4, tankBody:200, tankTurret:200, tankGun:200 };
 const TANK_H = 21;                    // a tank stands well above a soldier (15)
 const RIDER_OFFSET = [0, 6.4, 1.6];
 const LOD_DIST = 260;                 // beyond this distance from the camera, units use the simplified mesh
@@ -17,12 +18,45 @@ const HIT_DUR = .35, RELOAD_DUR = .7;
 const LOD0 = /_LOD$/, LOD1 = /^(?!.*_LOD$)/;
 const hideWith = (lodRe, extra) => extra ? new RegExp(lodRe.source + '|' + extra) : lodRe;
 
+/* ---------- stick figures ---------- */
+const BODY_MESHES = '^(Knight|Rogue|Barbarian)_(Arm|Body|Head|Leg)|Knight_Helmet|Barbarian_Hat|Rogue_Cape|Barbarian_Cape';
+/* limb thickness k, head size h; LOD1 uses fewer sides and joints */
+function stickBody(k, h, lite, rock){
+  if(rock) return golemBody(lite);
+  const L = (a, b, r) => [a, b, r*k];
+  const segs = [
+    L('hips','chest',.08), L('chest','head',.055),
+    L('chest','upperarml',.045), L('upperarml','lowerarml',.045), L('lowerarml','wristl',.042), L('wristl','handl',.04),
+    L('chest','upperarmr',.045), L('upperarmr','lowerarmr',.045), L('lowerarmr','wristr',.042), L('wristr','handr',.04),
+    L('hips','upperlegl',.055), L('upperlegl','lowerlegl',.052), L('lowerlegl','footl',.048), L('footl','toesl',.044),
+    L('hips','upperlegr',.055), L('upperlegr','lowerlegr',.052), L('lowerlegr','footr',.048), L('footr','toesr',.044) ];
+  const B = (bone, r, o) => [bone, r*(o && o.abs ? 1 : k), o];
+  const balls = lite ? [B('head', h, { up:.32, abs:1 }), B('handl',.068), B('handr',.068)] :
+    [B('chest',.08), B('hips',.08), B('upperarml',.045), B('lowerarml',.045), B('handl',.068), B('upperarmr',.045), B('lowerarmr',.045), B('handr',.068),
+     B('upperlegl',.055), B('lowerlegl',.052), B('footl',.048), B('toesl',.044), B('upperlegr',.055), B('lowerlegr',.052), B('footr',.048), B('toesr',.044),
+     B('head', h, { up:.32, hi:1, abs:1 })];
+  return { ref:['hips','head'], uv:[.5,.755], mask:1, radial: lite ? 5 : 10, segs, balls };
+}
+/* the golem: a heap of boulders strung on the same skeleton — bulky torso, huge fists, small head */
+function golemBody(lite){
+  const R = (a, b, r) => [a, b, r, 'rock'];
+  const segs = [
+    R('hips','chest',.24), R('chest','head',.1),
+    R('chest','upperarml',.12), R('upperarml','lowerarml',.15), R('lowerarml','handl',.17),
+    R('chest','upperarmr',.12), R('upperarmr','lowerarmr',.15), R('lowerarmr','handr',.17),
+    R('hips','upperlegl',.13), R('upperlegl','lowerlegl',.16), R('lowerlegl','footl',.14), R('footl','toesl',.11),
+    R('hips','upperlegr',.13), R('upperlegr','lowerlegr',.16), R('lowerlegr','footr',.14), R('footr','toesr',.11) ];
+  const balls = [['head', .17, { up:.1, rock:1 }], ['handl', .2, { rock:1 }], ['handr', .2, { rock:1 }], ['chest', .26, { rock:1 }],
+                 ...(lite ? [] : [['upperarml', .15, { rock:1 }], ['upperarmr', .15, { rock:1 }], ['hips', .2, { rock:1 }]])];
+  return { ref:['hips','head'], uv:[.56,.32], mask:.22, radial:6, segs, balls };
+}
+
 function modelSpecs(){
   const aim = BAKE.aim;
   const loop = (clip, frames) => ({ frames, loop:true, layers:[{ clip }] });
   const once = (clip, frames, span) => ({ frames, layers:[{ clip, span }] });
-  // team-colour strength per texel: the character's accent colour fully, plain steel partly
-  const steel = (s,l) => s < .14 && l > .28 && l < .78 ? .36 : 0;
+  // props keep their own colours; the accent colour of their texture takes the team colour
+  const steel = (s,l) => s < .14 && l > .28 && l < .78 ? .3 : 0;
   const red = (h,s,l) => (h < .03 || h > .9) && s > .45 && l > .18 && l < .78 ? 1 : steel(s,l);
   const green = (h,s,l) => h > .25 && h < .55 && s > .35 && l > .12 && l < .8 ? 1 : steel(s,l);
   const blue = (h,s,l) => h > .52 && h < .7 && s > .2 && l > .15 && l < .8 ? 1 : steel(s,l);
@@ -33,42 +67,56 @@ function modelSpecs(){
   };
   const knightAnims = Object.assign(melee('Idle', 'Running_A', ['1H_Melee_Attack_Chop','1H_Melee_Attack_Slice_Diagonal','1H_Melee_Attack_Stab'], 'Hit_A'),
                                     { block:once('Block_Hit', 6, .6) });
-  // the commander adds a raised-shield stance, shield bash, whirlwind, leap and war cry
   const commanderAnims = Object.assign({}, knightAnims, {
     block:loop('Blocking', 8), blockHit:once('Block_Hit', 6, .6), bash:once('Block_Attack', 12),
     spin:loop('2H_Melee_Attack_Spinning', 10), leap:once('Jump_Full_Short', 16), cry:once('Cheer', 10, .7) });
   const SHIELD_NODES = { round:'Round_Shield', badge:'Badge_Shield', rect:'Rectangle_Shield', spike:'Spike_Shield' };
   const others = keep => Object.values(SHIELD_NODES).filter(n => n !== keep).map(n => '^' + n).join('|');
-  // riders: seated with legs around the horse, swinging the sword with the upper body
-  const seat = (b, key, u) => {
+  // two detail levels: LOD0 hides the simplified copies, LOD1 hides the detailed props
+  const lods = (extra, k, h, rock) => [
+    { hide:hideWith(LOD0, BODY_MESHES + (extra ? '|' + extra : '')), stick:stickBody(k, h, false, rock) },
+    { hide:hideWith(LOD1, BODY_MESHES + (extra ? '|' + extra : '')), stick:stickBody(k, h, true, rock) } ];
+  const seat = (b, key) => {
     if(key!=='ride' && key!=='atk0') return;
     aim(b.upperlegl,  .55, -.25, 1); aim(b.lowerlegl,  .3, -1, .05);
     aim(b.upperlegr, -.55, -.25, 1); aim(b.lowerlegr, -.3, -1, .05);
   };
   return {
-    soldier:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, lods:[hideWith(LOD0,others('Round_Shield')), hideWith(LOD1,others('Round_Shield'))], anims:knightAnims },
-    // the commander is built from the player's choices (shield, helmet); size is always measured with helmet and badge shield
-    commanderFor:(look, li) => {
-      const lod = li ? LOD1 : LOD0, keep = SHIELD_NODES[look.shield] || 'Badge_Shield';
-      return { rig:'knight', height:21.5, measure:[{clip:'Idle', t:0}], accent:red,
-        hide:hideWith(lod, others(keep) + (look.helmet === false ? '|^Knight_Helmet' : '')),
-        measureHide:hideWith(lod, others('Badge_Shield')), anims:commanderAnims };
-    },
-    archer:{ rig:'rogue', height:15, measure:[{clip:'Idle', t:0}], accent:green, lods:[LOD0, LOD1],
+    soldier:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, propScale:.62, lods:lods(others('Round_Shield') + '|Knight_Cape', 1, .27), anims:knightAnims },
+    archer:{ rig:'rogue', height:15, measure:[{clip:'Idle', t:0}], accent:green, propScale:.7, lods:lods('1H_Crossbow|Knife|Throwable', .95, .27),
       anims:{ idle:loop('Idle',8), run:loop('Running_A',16), aim:{ frames:1, layers:[{clip:'2H_Ranged_Aiming', at:.5}] },
               shoot:once('2H_Ranged_Shoot',9), reload:once('2H_Ranged_Reload',12), hit:once('Hit_A',6),
               death0:once('Death_A',14), death1:once('Death_B',14), cheer:loop('Cheer',12) } },
-    giant:{ rig:'barbarian', height:36, measure:[{clip:'2H_Melee_Idle', t:0}], accent:blue, lods:[LOD0, LOD1],
+    giant:{ rig:'barbarian', height:36, measure:[{clip:'2H_Melee_Idle', t:0}], accent:blue, propScale:.8, lods:lods('1H_Axe|Barbarian_Round_Shield|Mug', 1.7, .3),
       anims:Object.assign(melee('2H_Melee_Idle', 'Walking_A', ['2H_Melee_Attack_Chop','2H_Melee_Attack_Slice','2H_Melee_Attack_Spin'], 'Hit_B'),
                           { atk0:once('2H_Melee_Attack_Chop',13), atk1:once('2H_Melee_Attack_Slice',13), atk2:once('2H_Melee_Attack_Spin',13) }) },
-    rider:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, poseFn:seat, lods:[hideWith(LOD0,others('Round_Shield')), hideWith(LOD1,others('Round_Shield'))],
+    golem:{ rig:'barbarian', height:40, measure:[{clip:'Unarmed_Idle', t:0}], accent:blue, lods:lods('1H_Axe|2H_Axe|Barbarian_Round_Shield|Mug', 3.2, .36, true),
+      anims:{ idle:loop('Unarmed_Idle',8), run:loop('Walking_C',16), hit:once('Hit_B',6),
+              atk0:once('Unarmed_Melee_Attack_Punch_A',13), atk1:once('Unarmed_Melee_Attack_Punch_B',13), atk2:once('Unarmed_Melee_Attack_Kick',12),
+              death0:once('Death_A',14), death1:once('Death_B',14), cheer:loop('Cheer',12) } },
+    rider:{ rig:'knight', height:15, measure:[{clip:'Idle', t:0}], accent:red, propScale:.62, poseFn:seat, lods:lods(others('Round_Shield') + '|Knight_Cape', 1, .27),
       anims:{ ride:{ frames:1, layers:[{clip:'Sit_Chair_Idle', at:0}] },
               atk0:{ frames:12, layers:[{clip:'Sit_Chair_Idle', part:'lower', at:0},{clip:'1H_Melee_Attack_Slice_Horizontal', part:'upper'}] },
               death0:once('Death_A',14) } },
-    horse:{ rig:'horse', height:18, measure:[{clip:'Idle', t:0}], lods:[null],
+    // your commander follows your choices (shield, crown); a heavier stick figure with a cape
+    commanderFor:(look, li) => {
+      const keep = SHIELD_NODES[look.shield] || 'Badge_Shield', lod = li ? LOD1 : LOD0;
+      return { rig:'knight', height:21.5, measure:[{clip:'Idle', t:0}], accent:red, propScale:.7,
+        hide:hideWith(lod, BODY_MESHES + '|' + others(keep)), measureHide:hideWith(lod, BODY_MESHES + '|' + others('Badge_Shield')),
+        stick:stickBody(1.3, .29, !!li), attach: look.crown === false ? [] : [CROWN], anims:commanderAnims };
+    },
+    horse:{ rig:'horse', height:18, measure:[{clip:'Idle', t:0}], lods:[{}],
       anims:{ idle:{ frames:1, layers:[{clip:'Idle', at:0}] }, run:loop('Gallop',12), death0:once('Death',12) } },
   };
 }
+/* a small gold crown resting on the stick head */
+const CROWN = (() => {
+  const band = new THREE.CylinderGeometry(.62, .55, .28, 12, 1, true); band.translate(0, 0, 0);
+  const pts = []; for(let i=0;i<6;i++){ const g = new THREE.ConeGeometry(.12, .3, 4); const a = i/6*Math.PI*2; g.translate(Math.sin(a)*.58, .28, Math.cos(a)*.58); pts.push(g); }
+  const gem = new THREE.OctahedronGeometry(.11); gem.translate(0, .02, .6);
+  const gold = [.56, .3], ruby = [.06, .33];   // texels of the knight palette
+  return { bone:'head', pos:[0, .47, 0], scale:.42, parts:[{ g:band, color:new THREE.Color(0xe8b53a), name:'gold', uv:gold }, ...pts.map(g => ({ g, color:new THREE.Color(0xf2c64a), name:'gold', uv:gold })), { g:gem, color:new THREE.Color(0xd8263a), name:'gem', uv:ruby }] };
+})();
 
 /* ---------- materials: the team colour (per instance) only paints masked vertices ---------- */
 let COL_MAT = null; const TEX_MATS = new Map();
@@ -135,8 +183,8 @@ async function loadModels(onProgress){
   MODEL.rigs = rigs; MODEL.specs = specs; MODEL.mobile = mobile;
   const baked = {};
   for(let j=0;j<jobs.length;j++){
-    const [k, sp, hide, li] = jobs[j];
-    const spec = Object.assign({}, sp, { hide:hide || undefined, measureHide: hide || undefined });
+    const [k, sp, lod, li] = jobs[j];
+    const spec = Object.assign({}, sp, lod, { measureHide: lod.hide });
     (baked[k] = baked[k] || [])[li] = BAKE.bake(rigs[sp.rig], spec);
     onProgress(.45 + .5*(j+1)/(jobs.length+1));
     await tick();
@@ -172,7 +220,8 @@ async function loadModels(onProgress){
   }
   // commanders: yours follows your chosen look; the enemy's keeps the default (and the lighter mesh)
   bakeCommander('commander', commanderLook(), 0);
-  bakeCommander('commanderFoe', { shield:'badge', helmet:true }, 1);
+  bakeCommander('commanderFoe', { shield:'badge', crown:true }, 1);
+  buildConstructs();
   MODEL.team = [new THREE.Color(0x3f74ee), new THREE.Color(0xb3261b)];
   MODEL.dead = MODEL.team.map(c => c.clone().multiplyScalar(.5));
   MODEL.cmdColor = commanderColor(); MODEL.cmdDead = MODEL.cmdColor.clone().multiplyScalar(.5);
@@ -262,6 +311,40 @@ function renderModelUnits(){
       addInst(variant('tankTurret').idle[0], M.r, tc);
       M.t.makeTranslation(0, 0, -kick*3.4); M.r.multiply(M.t);          // barrel recoil
       addInst(variant('tankGun').idle[0], M.r, tc);
+    } else if(u.type==='atower' || u.type==='btower'){
+      // buildings sit square on the ground; destroyed ones sink and lean
+      const k = u.alive ? 0 : Math.min(1, u.dieT/1.2), B = MODEL.B;
+      M.e.set(k*.14, 0, k*.09, 'YXZ'); M.q.setFromEuler(M.e); M.p.set(X, -k*12, Z); M.m.compose(M.p, M.q, M.s);
+      const c = u.alive ? col : MODEL.dead[u.team];
+      if(u.type==='atower'){
+        addInst(B.atower, M.m, c);
+        if(u.alive){ M.q.setFromAxisAngle(M.y, u.heading); M.p.set(X, 28.2, Z); M.r.compose(M.p, M.q, M.s); addInst(pickFrame(variant('archer'), u, 'archer'), M.r, col); }
+      } else {
+        addInst(B.btowerBase, M.m, c);
+        const kick = u.atkT>0 ? Math.pow(u.atkT/ANIM.btower, 2) : 0;
+        M.e.set(-kick*.35, u.aim, 0, 'YXZ'); M.q.setFromEuler(M.e); M.p.set(0, 22, 0); M.t.compose(M.p, M.q, M.s);
+        M.r.multiplyMatrices(M.m, M.t); addInst(B.btowerTop, M.r, c);
+      }
+    } else if(u.type==='catapult'){
+      const B = MODEL.B, c = u.alive ? col : MODEL.dead[u.team];
+      addInst(B.catBody, M.m, c);
+      // the arm rests low behind the axle, whips over the top when it throws, then is winched back down
+      let a = -.35;
+      if(u.atkT>0){ const k = 1-u.atkT/ANIM.catapult; a = k < .45 ? -.35 + (k/.45)*2.45 : 2.1 - ((k-.45)/.55)*2.45; }
+      if(!u.alive) a = .4;
+      M.e.set(a, 0, 0, 'XYZ'); M.q.setFromEuler(M.e); M.p.set(0, 15.5, 1); M.t.compose(M.p, M.q, M.s);
+      M.r.multiplyMatrices(M.m, M.t); addInst(B.catArm, M.r, c);
+    } else if(u.type==='balloon' || u.type==='dragon'){
+      // flyers bob in the air; when shot down they tumble and fall
+      const U = UNITS[u.type], fall = u.alive ? 0 : Math.min(1, u.dieT/.9);
+      const y = u.alive ? U.flyH + Math.sin(S.time*1.4 + u.phase)*(u.type==='dragon'?3:2) : U.flyH*(1-fall*fall) + (u.type==='dragon' ? 4 : 2);
+      const roll = u.alive ? Math.sin(S.time*.9 + u.phase)*.06 : fall*(u.type==='dragon' ? 1.1 : .5);
+      M.e.set(u.type==='dragon' && u.alive && u.moving ? .12 : 0, u.heading, roll, 'YXZ'); M.q.setFromEuler(M.e);
+      M.p.set(X, y, Z); M.s.set(1, u.type==='balloon' && fall>=1 ? .45 : 1, 1); M.m.compose(M.p, M.q, M.s); M.s.set(1,1,1);
+      const c = u.alive ? col : MODEL.dead[u.team], B = MODEL.B;
+      if(u.type==='balloon') addInst(B.balloon, M.m, c);
+      else if(u.breathT>0 && u.alive) addInst(loopAt(B.dragonFire, S.time*3), M.m, c);
+      else addInst(u.alive ? loopAt(B.dragonFly, S.time*1.6 + u.phase*.16) : B.dragonFly[2], M.m, c);
     } else if(u.type==='commander'){
       const c = u.team===0 ? (u.alive ? MODEL.cmdColor : MODEL.cmdDead) : col;
       addInst(pickFrame(MODEL.V[u.team===0 ? 'commander' : 'commanderFoe'][0], u, 'commander'), M.m, c);
@@ -326,9 +409,12 @@ function makeModelIcons(){
       archer:[[V('archer').aim[0],-5,0],[V('archer').aim[0],5,3]],
       cavalry:[[V('horse').idle[0],0,0],[V('rider').ride[0],RIDER_OFFSET[0],RIDER_OFFSET[2],RIDER_OFFSET[1]]],
       giant:[[V('giant').idle[0],0,0]],
+      golem:[[V('golem').idle[0],0,0]],
       tank:[[V('tankBody').idle[0],0,0],[V('tankTurret').idle[0],MODEL.pivot.x,MODEL.pivot.z],[V('tankGun').idle[0],MODEL.pivot.x,MODEL.pivot.z]],
     };
+    Object.assign(layouts, MODEL.iconLayouts || {});
     for(const t of ORDER){
+      if(!layouts[t]) continue;
       const g = new THREE.Group(); g.rotation.y = .55;
       for(const [slot,x,z,y] of layouts[t]) g.add(instanceOf(slot, x, y, z, blue));
       out[t] = shoot(sc, g, 144, 104, 26);
@@ -343,4 +429,153 @@ function makeCommanderPreview(){
     g.rotation.y = .45; g.add(instanceOf(V.block[2], 0, 0, 0, MODEL.cmdColor));
     return shoot(sc, g, 220, 260, 24, .1);
   }catch(e){ console.warn('preview', e); return ''; }
+}
+
+/* ---------- built units: towers, catapult, balloon, dragon (made from simple solids) ---------- */
+/* parts: [geometry, matrix, colour, teamMask] → one geometry with colour + mask, for the colour material */
+function solid(parts){
+  let n = 0; const pos = [], nor = [], col = [], msk = [], idx = [];
+  const c = new THREE.Color(), nm = new THREE.Matrix3(), v = new THREE.Vector3();
+  for(const [geo, m, color, mask] of parts){
+    const g = geo.index ? geo : geo, P = g.attributes.position, N = g.attributes.normal;
+    nm.getNormalMatrix(m); c.set(color);
+    for(let i=0;i<P.count;i++){
+      v.fromBufferAttribute(P, i).applyMatrix4(m); pos.push(v.x, v.y, v.z);
+      v.fromBufferAttribute(N, i).applyMatrix3(nm).normalize(); nor.push(v.x, v.y, v.z);
+      col.push(c.r, c.g, c.b); msk.push(mask || 0);
+    }
+    if(g.index) for(const i of g.index.array) idx.push(n + i); else for(let i=0;i<P.count;i++) idx.push(n + i);
+    n += P.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3)); g.setAttribute('teamMask', new THREE.Float32BufferAttribute(msk, 1));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(n*2), 2));
+  g.setIndex(idx); g.computeBoundingSphere();
+  return g;
+}
+const M4 = (x=0,y=0,z=0, rx=0,ry=0,rz=0, sx=1,sy=sx,sz=sx) => new THREE.Matrix4().compose(new THREE.Vector3(x,y,z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx,ry,rz)), new THREE.Vector3(sx,sy,sz));
+const G = {
+  box:(w,h,d) => new THREE.BoxGeometry(w,h,d),
+  cyl:(rt,rb,h,s=12,open=false) => new THREE.CylinderGeometry(rt,rb,h,s,1,open),
+  cone:(r,h,s=10) => new THREE.ConeGeometry(r,h,s),
+  ball:(r,w=12,hh=8) => new THREE.SphereGeometry(r,w,hh),
+  rock:(r) => new THREE.DodecahedronGeometry(r,0),
+  torus:(r,t) => new THREE.TorusGeometry(r,t,6,16),
+};
+const STONE = 0xa9a39a, STONE2 = 0x8c867d, WOOD = 0x7a5534, WOOD2 = 0x5c3e24, IRON = 0x3a3d42, CLOTH = 0xf2f2f2;
+
+function buildArcherTower(){
+  const P = [];
+  P.push([G.cyl(12,14,26,12), M4(0,13,0), STONE], [G.cyl(14.5,14.5,2.4,12), M4(0,27,0), WOOD]);
+  for(let i=0;i<8;i++){ const a = i/8*TAU; P.push([G.box(4,4.5,3), M4(Math.sin(a)*13.2, 30.4, Math.cos(a)*13.2, 0, a, 0), STONE2]); }
+  P.push([G.cyl(.5,.5,22,5), M4(-9,38,-9), WOOD2], [G.box(.3,7,11), M4(-9,45,-3.5), CLOTH, 1]);
+  for(let i=0;i<5;i++) P.push([G.box(14.5,.6,.6), M4(0, 4+i*5, 12.6 - (i%2)*.3), STONE2]);
+  P.push([G.box(6,10,1), M4(0,6,13.2), WOOD2]);
+  return solid(P);
+}
+function buildBombTower(){
+  const base = [];
+  base.push([G.cyl(14,17,20,10), M4(0,10,0), STONE], [G.cyl(15.5,15.5,2.6,10), M4(0,20.5,0), IRON]);
+  for(let i=0;i<10;i++){ const a = i/10*TAU; base.push([G.box(4,4,3), M4(Math.sin(a)*14.5, 23.5, Math.cos(a)*14.5, 0, a, 0), STONE2]); }
+  base.push([G.cyl(15,15,1.6,10), M4(0,15,0), CLOTH, 1]);
+  const mortar = [];
+  mortar.push([G.cyl(6,6,3,10), M4(0,1.5,0), IRON], [G.box(9,5,6), M4(0,4.5,0), WOOD2]);
+  mortar.push([G.cyl(3.6,4.4,11,12,true), M4(0,9,2.6, .75,0,0), IRON], [G.torus(3.8,.7), M4(0,12.6,6.2, .75+Math.PI/2,0,0), IRON]);
+  mortar.push([G.cyl(4.6,4.6,1.2,10), M4(0,6,0), CLOTH, 1]);
+  return { base:solid(base), top:solid(mortar) };
+}
+function buildCatapult(){
+  const body = [];
+  for(const x of [-7,7]){ body.push([G.box(2,2.5,26), M4(x,4,0), WOOD]); body.push([G.box(2,14,2), M4(x,10,1, -.25,0,0), WOOD2]); }
+  for(const z of [-9,9]) for(const x of [-8.6,8.6]) body.push([G.cyl(4,4,1.6,12), M4(x,4,z, 0,0,Math.PI/2), WOOD2], [G.torus(4,.45), M4(x*1.02,4,z, 0,Math.PI/2,0), IRON]);
+  body.push([G.box(16,1.6,2), M4(0,4,-9), WOOD], [G.box(16,1.6,2), M4(0,4,9), WOOD], [G.cyl(.9,.9,16,8), M4(0,15.5,1, 0,0,Math.PI/2), IRON]);
+  body.push([G.box(16.4,1,3), M4(0,6,-12), CLOTH, 1]);
+  const arm = [];   // pivot at the axle (origin); the arm points backwards (−z) when loaded
+  arm.push([G.box(1.8,1.8,26), M4(0,0,-6), WOOD], [G.box(7,6,6), M4(0,-3.5,6.5), STONE2], [G.cyl(3.4,2.2,2.6,10,true), M4(0,1.2,-18.5), WOOD2]);
+  return { body:solid(body), arm:solid(arm) };
+}
+function buildBalloon(){
+  const P = [];
+  const env = new THREE.SphereGeometry(13, 16, 14), p = env.attributes.position, cols = [], msk = [];
+  // vertical gores alternate team colour and white
+  const parts = [];
+  for(let i=0;i<p.count;i++){ const a = Math.atan2(p.getX(i), p.getZ(i)); const stripe = Math.floor((a+Math.PI)/TAU*12) % 2; msk.push(stripe ? 1 : 0); }
+  const envG = solid([[env, M4(0,0,0, 0,0,0, 1,1.18,1), CLOTH, 0]]);
+  envG.attributes.teamMask.array.set(msk);
+  P.push([G.cone(6,6,12), M4(0,-15.5,0, Math.PI,0,0), CLOTH, 1]);
+  P.push([G.box(7,4.5,7), M4(0,-27,0), WOOD], [G.box(7.4,.8,7.4), M4(0,-24.8,0), WOOD2]);
+  for(const [x,z] of [[-3,-3],[3,-3],[-3,3],[3,3]]) P.push([G.cyl(.15,.15,10,4), M4(x*.75,-20.5,z*.75, z*.06,0,-x*.06), WOOD2]);
+  for(let i=0;i<4;i++) P.push([G.ball(1.2,6,4), M4(-3.6+i*2.4, -28.5, 3.8), 0xc9b48a]);
+  const rest = solid(P);
+  return mergeSolids([envG, rest]);
+}
+function mergeSolids(list){
+  let n = 0; const attrs = { position:[], normal:[], color:[], teamMask:[], uv:[] }, idx = [];
+  for(const g of list){
+    for(const k of Object.keys(attrs)) attrs[k].push(...g.attributes[k].array);
+    for(const i of g.index.array) idx.push(n + i);
+    n += g.attributes.position.count;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(attrs.position, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(attrs.normal, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(attrs.color, 3)); g.setAttribute('teamMask', new THREE.Float32BufferAttribute(attrs.teamMask, 1));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(attrs.uv, 2)); g.setIndex(idx); g.computeBoundingSphere();
+  return g;
+}
+/* the dragon: body, neck, head, tail and two membrane wings; frames sweep the wings and open the jaw */
+function wingGeo(side, flap){
+  // a fan of 4 fingers from the shoulder; flap tilts the whole wing about the body axis
+  const tips = [[0,0],[14,4],[24,1],[28,-6],[22,-13],[12,-14]];
+  const pos = [], nor = [], col = [], msk = [], idx = [];
+  const shoulder = new THREE.Vector3(side*3.5, 3, 2), rot = new THREE.Matrix4().makeRotationZ(side*flap);
+  const pts = tips.map(([x,z]) => new THREE.Vector3(side*x, 0, z).applyMatrix4(rot).add(shoulder));
+  for(let i=1;i<pts.length-1;i++){ for(const p of [pts[0], pts[i], pts[i+1]]){ pos.push(p.x,p.y,p.z); nor.push(0,1,0); col.push(.82,.82,.86); msk.push(.7); } }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos,3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor,3));
+  g.computeVertexNormals();
+  // bones along the fingers
+  const bones = [];
+  for(let i=1;i<pts.length-1;i++){ const a = pts[0], b = pts[i], d = b.clone().sub(a), len = d.length(); const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0,1,0), d.normalize()); bones.push([G.cyl(.35,.6,len,5), new THREE.Matrix4().compose(a.clone().add(b).multiplyScalar(.5), q, new THREE.Vector3(1,1,1)), 0x4a3a3a, .3]); }
+  return { membrane:g, bones };
+}
+function dragonFrame(flap, jaw){
+  const P = [], SC = 0xd8d8de, BELLY = 0xe8d8b0, HORN = 0xf0e8d0;
+  P.push([G.ball(1,14,10), M4(0,0,0, 0,0,0, 6.5,6,13), SC, .85], [G.ball(1,10,8), M4(0,-2.6,1, 0,0,0, 5,3.6,10), BELLY, 0]);
+  // neck rising forward, head at its end
+  const neck = [[0,3,11,4.2],[0,6,16,3.6],[0,9,20,3.2]];
+  for(const [x,y,z,r] of neck) P.push([G.ball(r,10,8), M4(x,y,z), SC, .85]);
+  P.push([G.ball(1,12,8), M4(0,11,25, -.15,0,0, 3.6,3,6), SC, .85]);
+  P.push([G.box(4.6,1.4,7), M4(0,9.2 - jaw*2,26.5, jaw*.6,0,0), SC, .85]);
+  for(const s of [-1,1]){ P.push([G.cone(.8,5,6), M4(s*1.6,14,22, -1.1,0,s*.3), HORN, 0]); P.push([G.ball(.7,6,4), M4(s*2.4,12,27), 0xffd23a, 0]); }
+  // tail tapering behind
+  for(let i=0;i<6;i++) P.push([G.ball(3.6-i*.5,8,6), M4(0, -1+i*.35, -12-i*5), SC, .85]);
+  P.push([G.cone(2.8,5,4), M4(0,1.2,-43, -Math.PI/2,0,0), SC, .85]);
+  for(let i=0;i<7;i++) P.push([G.cone(1,3,4), M4(0,5.8-Math.abs(i-2)*.4,8-i*4.5), HORN, 0]);
+  for(const s of [-1,1]) for(const z of [-5,6]) P.push([G.cyl(.9,.7,6,6), M4(s*3.5,-5.5,z, .6,0,0), SC, .85]);
+  const parts = [solid(P)];
+  for(const side of [-1,1]){ const w = wingGeo(side, flap); parts.push(solid([[w.membrane, new THREE.Matrix4(), 0xc4c4cc, .7]])); parts.push(solid(w.bones)); }
+  return mergeSolids(parts);
+}
+
+/* create frame slots for the built units; called once the materials exist */
+function buildConstructs(){
+  const cm = colMaterial(), slot = (g, cap) => frameMeshes([g], cm, cap, true)[0];
+  const bt = buildBombTower(), cp = buildCatapult();
+  MODEL.B = {
+    atower: slot(buildArcherTower(), 64),
+    btowerBase: slot(bt.base, 64), btowerTop: slot(bt.top, 64),
+    catBody: slot(cp.body, 64), catArm: slot(cp.arm, 64),
+    balloon: slot(buildBalloon(), 64),
+    dragonFly: Array.from({ length:8 }, (_, i) => slot(dragonFrame(Math.sin(i/8*TAU)*.75, 0), 32)),
+    dragonFire: Array.from({ length:6 }, (_, i) => slot(dragonFrame(Math.sin(i/6*TAU)*.35, 1), 32)),
+  };
+  const B = MODEL.B, at = (s, x=0, z=0, y=0) => [s, x, z, y];
+  MODEL.iconLayouts = {
+    atower:[at(B.atower), at(MODEL.V.archer[0].aim[0], 0, 0, 28)],
+    btower:[at(B.btowerBase), at(B.btowerTop, 0, 0, 22)],
+    catapult:[at(B.catBody), at(B.catArm, 0, 1, 15.5)],
+    balloon:[at(B.balloon)],
+    dragon:[at(B.dragonFly[2])],
+  };
 }

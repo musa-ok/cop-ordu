@@ -115,8 +115,73 @@ const BAKE = (() => {
     for(let i=0;i<n;i++) for(let c=0;c<k;c++) out[i*k+c] = get[c](i) / div;
     flatCache.set(attr, out); return out;
   }
+  /* ---------- stick figures: limbs stretched between bones, so they inherit every animation of the rig ---------- */
+  const stickCache = new Map();
+  function stickTemplate(rig, st){
+    const key = rig.scene.uuid + JSON.stringify(st);
+    if(stickCache.has(key)) return stickCache.get(key);
+    rig.pose(st.rest || [], null);
+    const P = n => { const b = rig.bones[n]; if(!b) throw new Error('bone missing: ' + n); return b.getWorldPosition(new THREE.Vector3()); };
+    const U = P(st.ref[0]).distanceTo(P(st.ref[1]));            // radii are given relative to this body length
+    const cyl = new THREE.CylinderGeometry(1, 1, 1, st.radial || 10, 1, true); cyl.translate(0, .5, 0);
+    const ball = new THREE.SphereGeometry(1, 7, 5), head = new THREE.SphereGeometry(1, 14, 11);   // small joints stay cheap
+    const rock = new THREE.DodecahedronGeometry(1, 0);
+    const parts = [];
+    for(const [a, b, r, shape] of st.segs) parts.push({ type: shape==='rock' ? 'rock' : 'seg', a, b, r:r*U, g: shape==='rock' ? rock : cyl });
+    for(const [bone, r, o] of st.balls || []) parts.push({ type:'ball', bone, r:r*U, up:((o&&o.up)||0)*U, fwd:((o&&o.fwd)||0)*U, sy:(o&&o.sy)||1, g:(o&&o.rock) ? rock : (o&&o.hi) ? head : ball });
+    let n = 0; const idx = [];
+    for(const p of parts){
+      p.off = n; p.pos = flat(p.g.attributes.position); p.nor = flat(p.g.attributes.normal); p.cnt = p.g.attributes.position.count;
+      if(p.g.index){ const ix = p.g.index.array; for(let i=0;i<ix.length;i++) idx.push(n + ix[i]); }
+      else for(let i=0;i<p.cnt;i++) idx.push(n + i);
+      n += p.cnt;
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(n*3), 3));
+    const uv = new Float32Array(n*2); for(let i=0;i<n;i++){ uv[i*2] = st.uv[0]; uv[i*2+1] = st.uv[1]; }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    const t = { parts, geo, n, mask: st.mask === undefined ? 1 : st.mask };
+    stickCache.set(key, t); return t;
+  }
+  const _sa = new THREE.Vector3(), _sb = new THREE.Vector3(), _sx = new THREE.Vector3(), _sy = new THREE.Vector3(), _sz = new THREE.Vector3(), _sq = new THREE.Quaternion();
+  function stickFrame(rig, tpl, N, pos, nor, base){
+    const e = N.elements;
+    const put = (k, x, y, z, nx, ny, nz) => {
+      pos[k]   = e[0]*x + e[4]*y + e[8]*z + e[12];
+      pos[k+1] = e[1]*x + e[5]*y + e[9]*z + e[13];
+      pos[k+2] = e[2]*x + e[6]*y + e[10]*z + e[14];
+      const mx = e[0]*nx + e[4]*ny + e[8]*nz, my = e[1]*nx + e[5]*ny + e[9]*nz, mz = e[2]*nx + e[6]*ny + e[10]*nz, l = Math.hypot(mx,my,mz) || 1;
+      nor[k] = mx/l; nor[k+1] = my/l; nor[k+2] = mz/l;
+    };
+    for(const p of tpl.parts){
+      const P = p.pos, Q = p.nor;
+      if(p.type === 'ball'){
+        const b = rig.bones[p.bone]; b.getWorldPosition(_sa);
+        if(p.up || p.fwd){ b.getWorldQuaternion(_sq); _sa.add(_sb.set(0, p.up, p.fwd).applyQuaternion(_sq)); }
+        for(let i=0;i<p.cnt;i++){
+          const k = (base + p.off + i)*3;
+          put(k, _sa.x + P[i*3]*p.r, _sa.y + P[i*3+1]*p.r*p.sy, _sa.z + P[i*3+2]*p.r, Q[i*3], Q[i*3+1], Q[i*3+2]);
+        }
+        continue;
+      }
+      rig.bones[p.a].getWorldPosition(_sa); rig.bones[p.b].getWorldPosition(_sb);
+      _sy.subVectors(_sb, _sa); const len = _sy.length() || 1e-4; _sy.divideScalar(len);
+      _sx.set(1,0,0); if(Math.abs(_sy.x) > .9) _sx.set(0,0,1);
+      _sz.crossVectors(_sx, _sy).normalize(); _sx.crossVectors(_sy, _sz).normalize();
+      const rock = p.type === 'rock', ly = rock ? len*.62 : len, ox = rock ? (_sa.x+_sb.x)/2 : _sa.x, oy = rock ? (_sa.y+_sb.y)/2 : _sa.y, oz = rock ? (_sa.z+_sb.z)/2 : _sa.z;
+      for(let i=0;i<p.cnt;i++){
+        const lx = P[i*3]*p.r, lyy = P[i*3+1]*ly, lz = P[i*3+2]*p.r, nx = Q[i*3], ny = Q[i*3+1], nz = Q[i*3+2];
+        const k = (base + p.off + i)*3;
+        put(k, ox + _sx.x*lx + _sy.x*lyy + _sz.x*lz, oy + _sx.y*lx + _sy.y*lyy + _sz.y*lz, oz + _sx.z*lx + _sy.z*lyy + _sz.z*lz,
+               _sx.x*nx + _sy.x*ny + _sz.x*nz, _sx.y*nx + _sy.y*ny + _sz.y*nz, _sx.z*nx + _sy.z*ny + _sz.z*nz);
+      }
+    }
+  }
+
   function collectSources(rig, spec){
     const hide = spec.hide, out = [];
+    if(spec.stick){ const tpl = stickTemplate(rig, spec.stick); out.push({ kind:'stick', tpl, geo:tpl.geo }); }
     for(const sm of rig.skinned) if(!(hide && hide.test(sm.name))) out.push({ kind:'skin', mesh:sm, geo:sm.geometry, mat:sm.material });
     for(const st of rig.statics) if(!(hide && hide.test(st.name))) out.push({ kind:'static', mesh:st, geo:st.geometry, mat:st.material });
     for(const a of spec.attach || []) for(const p of a.parts) out.push({ kind:'attach', att:a, geo:p.g, part:p });
@@ -132,7 +197,8 @@ const BAKE = (() => {
     for(const s of srcs){
       const g = s.geo, cnt = g.attributes.position.count, uva = flat(g.attributes.uv);
       let m = 0;
-      if(s.kind==='attach'){
+      if(s.kind==='stick'){ c.setRGB(1,1,1); m = s.tpl.mask; }
+      else if(s.kind==='attach'){
         const t = s.att.tint && s.att.tint[s.part.name];
         c.copy(t && t.color!==undefined ? new THREE.Color(t.color) : s.part.color); m = t ? (t.mask||0) : 0;
       } else if(s.mat.map){ c.setRGB(1,1,1); }
@@ -143,7 +209,8 @@ const BAKE = (() => {
       }
       for(let i=0;i<cnt;i++){
         const k = base+i;
-        if(uva){ uv[k*2] = uva[i*2]; uv[k*2+1] = uva[i*2+1]; }
+        if(s.kind==='attach' && s.part.uv){ uv[k*2] = s.part.uv[0]; uv[k*2+1] = s.part.uv[1]; }   // props painted from one palette texel
+        else if(uva){ uv[k*2] = uva[i*2]; uv[k*2+1] = uva[i*2+1]; }
         col[k*3] = c.r; col[k*3+1] = c.g; col[k*3+2] = c.b;
         let mk = m;
         if(sample && uva && s.mat && s.mat.map){ const [r,gg,b] = sample(uv[k*2], uv[k*2+1]); const [h,sat,l] = hsl(r,gg,b); mk = +spec.accent(h,sat,l) || 0; }
@@ -165,10 +232,11 @@ const BAKE = (() => {
   /* Skin the current pose into pos/nor arrays (N maps model space to game space) */
   const _A = new THREE.Matrix4(), _B = new THREE.Matrix4(), _M = new THREE.Matrix4(), _o = new THREE.Matrix4(),
         _q = new THREE.Quaternion(), _p = new THREE.Vector3(), _s = new THREE.Vector3(), _e = new THREE.Euler(), _v = new THREE.Vector3();
-  function skinFrame(rig, srcs, N, n){
+  function skinFrame(rig, srcs, N, n, spec){
     const pos = new Float32Array(n*3), nor = new Float32Array(n*3);
     let base = 0;
     for(const s of srcs){
+      if(s.kind==='stick'){ stickFrame(rig, s.tpl, N, pos, nor, base); base += s.tpl.n; continue; }
       const g = s.geo, cnt = g.attributes.position.count, P = flat(g.attributes.position), Nn = flat(g.attributes.normal);
       if(s.kind==='skin'){
         const sm = s.mesh, bones = sm.skeleton.bones, inv = sm.skeleton.boneInverses, nb = bones.length;
@@ -197,7 +265,15 @@ const BAKE = (() => {
           pos[k3]=ox; pos[k3+1]=oy; pos[k3+2]=oz; nor[k3]=mx/l; nor[k3+1]=my/l; nor[k3+2]=mz/l;
         }
       } else {
-        if(s.kind==='static') _M.multiplyMatrices(N, s.mesh.matrixWorld);
+        if(s.kind==='static'){
+          _M.multiplyMatrices(N, s.mesh.matrixWorld);
+          const k = spec && spec.propScale;
+          if(k && s.mesh.parent && s.mesh.parent.isBone){
+            const Pm = s.mesh.parent.matrixWorld;
+            _o.copy(Pm).invert().premultiply(new THREE.Matrix4().makeScale(k,k,k)).premultiply(Pm);   // P · S · P⁻¹
+            _M.multiplyMatrices(N, _o).multiply(s.mesh.matrixWorld);
+          }
+        }
         else {
           const a = s.att, bone = rig.bones[a.bone];
           bone.matrixWorld.decompose(_p, _q, _s);
@@ -223,9 +299,9 @@ const BAKE = (() => {
   /* Normalisation: model space -> game space (feet on y=0, facing +Z, given height) */
   function normalizer(rig, spec, srcs, n){
     rig.pose(spec.measure || [], spec.poseFn ? b => spec.poseFn(b, 'measure', 0) : null, spec.upper);
-    const msrcs = spec.measureHide !== undefined ? collectSources(rig, { hide:spec.measureHide }) : srcs;
+    const msrcs = spec.measureHide !== undefined ? collectSources(rig, { hide:spec.measureHide, stick:spec.stick }) : srcs;
     let mn = 0; for(const s of msrcs) mn += s.geo.attributes.position.count;
-    const { pos } = skinFrame(rig, msrcs, new THREE.Matrix4(), mn);
+    const { pos } = skinFrame(rig, msrcs, new THREE.Matrix4(), mn, spec);
     const box = new THREE.Box3(), v = new THREE.Vector3();
     for(let i=0;i<pos.length;i+=3) box.expandByPoint(v.set(pos[i], pos[i+1], pos[i+2]));
     const size = box.getSize(new THREE.Vector3()), ctr = box.getCenter(new THREE.Vector3());
@@ -259,7 +335,7 @@ const BAKE = (() => {
         const u = a.loop ? f / a.frames : (a.frames > 1 ? f / (a.frames - 1) : 0);
         const layers = a.layers.map(L => ({ clip:L.clip, part:L.part, t:((L.at !== undefined ? L.at : u) * (L.span || 1) + (L.from || 0)) * rig.duration(L.clip) }));
         rig.pose(layers, spec.poseFn ? b => spec.poseFn(b, key, u) : null, spec.upper);
-        out[key].push(makeGeometry(shared, skinFrame(rig, srcs, N, shared.n)));
+        out[key].push(makeGeometry(shared, skinFrame(rig, srcs, N, shared.n, spec)));
       }
     }
     out.texture = rig.texture && spec.accent !== undefined ? rig.texture : (spec.useTexture ? rig.texture : null);
